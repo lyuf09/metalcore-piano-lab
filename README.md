@@ -66,7 +66,6 @@ A research‑oriented web rhythm game prototype that explores automatic chart ge
 
 ## License
 
-MIT (or specify your preferred license)
 
 ---
 
