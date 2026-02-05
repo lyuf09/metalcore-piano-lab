@@ -259,6 +259,46 @@
       z-index: 1;
     }
 
+    .guide {
+      position: fixed;
+      inset: 0;
+      display: grid;
+      place-items: center;
+      background: rgba(6, 8, 12, 0.6);
+      backdrop-filter: blur(6px);
+      z-index: 3;
+    }
+
+    .guide-card {
+      width: min(90vw, 520px);
+      background: linear-gradient(180deg, rgba(20, 23, 29, 0.92), rgba(16, 18, 23, 0.9));
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 14px;
+      padding: 18px 18px 16px;
+      box-shadow:
+        0 18px 40px rgba(0, 0, 0, 0.4),
+        inset 0 1px 0 rgba(255, 255, 255, 0.04);
+    }
+
+    .guide-card h2 {
+      margin: 0 0 8px;
+      font-size: 18px;
+      letter-spacing: 0.4px;
+    }
+
+    .guide-card ul {
+      margin: 0 0 14px;
+      padding: 0 0 0 18px;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.6;
+    }
+
+    .guide-actions {
+      display: flex;
+      gap: 8px;
+    }
+
     @media (max-width: 920px) {
       .app {
         grid-template-columns: 1fr;
@@ -274,25 +314,49 @@
 </head>
 <body>
   <div class="logo-bg"><img src="assets/logo.png" alt="" /></div>
+  <div id="guide" class="guide">
+    <div class="guide-card">
+      <h2 data-i18n="guide_title">使用须知</h2>
+      <ul>
+        <li data-i18n="guide_1">点击左侧选择本地音频并生成谱面。</li>
+        <li data-i18n="guide_2">音符落到判定线时按键（默认 D/F/J/K）。</li>
+        <li data-i18n="guide_3">可切换难度、按键数量、拍号与识别模式。</li>
+        <li data-i18n="guide_4">建议先开“增强识别”，不满意再关闭。</li>
+        <li data-i18n="guide_5">谱面对复杂变拍可能不稳定，属正常现象。</li>
+      </ul>
+      <div class="guide-actions">
+        <button id="guideOk" data-i18n="guide_ok">我知道了</button>
+        <button id="guideHide" class="secondary" data-i18n="guide_hide">下次不再显示</button>
+      </div>
+    </div>
+  </div>
   <div class="watermark">
     <span>Made by Haze_zzZ</span>
   </div>
   <main class="app">
     <section class="panel left">
-      <div>
-        <h1>前卫核钢琴节奏</h1>
-        <p>上传本地歌曲，自动检测节拍并生成下落音符。音符落到浅灰蓝判定线时按 D / F / J / K。</p>
+      <div class="row" style="align-items:flex-start;">
+        <div>
+          <h1 data-i18n="title">前卫核钢琴节奏</h1>
+          <p data-i18n="subtitle">上传本地歌曲，自动检测节拍并生成下落音符。音符落到浅灰蓝判定线时按 D / F / J / K。</p>
+        </div>
+        <div style="min-width:110px;">
+          <select id="langToggle" aria-label="Language">
+            <option value="zh">中文</option>
+            <option value="en">English</option>
+          </select>
+        </div>
       </div>
 
       <div class="controls-grid">
         <div class="group">
-          <label class="muted" for="audioFile">歌曲文件（mp3/wav/m4a）</label>
+        <label class="muted" for="audioFile" data-i18n="label_audio">歌曲文件（mp3/wav/m4a）</label>
           <input id="audioFile" type="file" accept="audio/*" />
         </div>
 
         <div class="group">
           <div class="row">
-            <label class="muted" for="density">谱面密度</label>
+            <label class="muted" for="density" data-i18n="label_density">谱面密度</label>
             <span id="densityText" class="muted">1.00x</span>
           </div>
           <input id="density" type="range" min="0.6" max="1.8" value="1" step="0.05" />
@@ -300,7 +364,7 @@
 
         <div class="group">
           <div class="row">
-            <label class="muted" for="offset">音符偏移</label>
+            <label class="muted" for="offset" data-i18n="label_offset">音符偏移</label>
             <span id="offsetText" class="muted">0 ms</span>
           </div>
           <input id="offset" type="range" min="-150" max="150" value="0" step="5" />
@@ -308,7 +372,7 @@
 
         <div class="group">
           <div class="row">
-            <label class="muted" for="focusMode">识别模式</label>
+            <label class="muted" for="focusMode" data-i18n="label_focus">识别模式</label>
             <span id="focusText" class="muted">自动切换</span>
           </div>
           <select id="focusMode">
@@ -323,7 +387,7 @@
 
       <div class="group">
         <div class="row">
-          <label class="muted" for="beatTrack">节拍追踪</label>
+          <label class="muted" for="beatTrack" data-i18n="label_beat_track">节拍追踪</label>
           <span id="beatText" class="muted">开</span>
         </div>
         <input id="beatTrack" type="checkbox" checked />
@@ -331,7 +395,7 @@
 
       <div class="group">
         <div class="row">
-          <label class="muted" for="enhanceMode">增强识别</label>
+          <label class="muted" for="enhanceMode" data-i18n="label_enhance">增强识别</label>
           <span id="enhanceText" class="muted">开</span>
         </div>
         <input id="enhanceMode" type="checkbox" checked />
@@ -339,7 +403,7 @@
 
       <div class="group">
         <div class="row">
-          <label class="muted" for="timeSig">拍号</label>
+          <label class="muted" for="timeSig" data-i18n="label_timesig">拍号</label>
           <span id="timeSigText" class="muted">自动</span>
         </div>
           <select id="timeSig">
@@ -356,7 +420,7 @@
 
         <div class="group">
           <div class="row">
-            <label class="muted" for="difficulty">难度</label>
+            <label class="muted" for="difficulty" data-i18n="label_difficulty">难度</label>
             <span id="difficultyText" class="muted">普通</span>
           </div>
           <select id="difficulty">
@@ -369,7 +433,7 @@
 
         <div class="group">
           <div class="row">
-            <label class="muted" for="laneCount">按键数量</label>
+            <label class="muted" for="laneCount" data-i18n="label_lane">按键数量</label>
             <span id="laneText" class="muted">4 键</span>
           </div>
           <select id="laneCount">
@@ -381,7 +445,7 @@
 
       <div class="group">
         <div class="row">
-          <label class="muted" for="beatLock">节拍锁定强度</label>
+          <label class="muted" for="beatLock" data-i18n="label_lock">节拍锁定强度</label>
           <span id="beatLockText" class="muted">65%</span>
         </div>
         <input id="beatLock" type="range" min="0" max="1" value="0.65" step="0.05" />
@@ -389,7 +453,7 @@
 
       <div class="group">
         <div class="row">
-          <label class="muted" for="sfxVolume">音效音量</label>
+          <label class="muted" for="sfxVolume" data-i18n="label_sfx">音效音量</label>
           <span id="sfxText" class="muted">80%</span>
         </div>
         <input id="sfxVolume" type="range" min="0" max="1.4" value="0.8" step="0.05" />
@@ -397,19 +461,19 @@
       </div>
 
       <div class="group">
-        <button id="analyzeBtn" disabled>分析并生成谱面</button>
-        <button id="regenBtn" class="secondary" disabled>按当前密度重新生成</button>
-        <button id="playBtn" disabled>开始游戏</button>
+        <button id="analyzeBtn" disabled data-i18n="btn_analyze">分析并生成谱面</button>
+        <button id="regenBtn" class="secondary" disabled data-i18n="btn_regen">按当前密度重新生成</button>
+        <button id="playBtn" disabled data-i18n="btn_play">开始游戏</button>
       </div>
 
-      <div id="status">等待上传歌曲…</div>
+      <div id="status" data-i18n="status_idle">等待上传歌曲…</div>
 
       <div class="stats">
-        <div class="stat">估计 BPM<strong id="bpmStat">-</strong></div>
-        <div class="stat">音符数<strong id="noteStat">-</strong></div>
-        <div class="stat">调性<strong id="keyStat">-</strong></div>
-        <div class="stat">分数<strong id="scoreStat">0</strong></div>
-        <div class="stat">连击<strong id="comboStat">0</strong></div>
+        <div class="stat"><span data-i18n="stat_bpm">估计 BPM</span><strong id="bpmStat">-</strong></div>
+        <div class="stat"><span data-i18n="stat_notes">音符数</span><strong id="noteStat">-</strong></div>
+        <div class="stat"><span data-i18n="stat_key">调性</span><strong id="keyStat">-</strong></div>
+        <div class="stat"><span data-i18n="stat_score">分数</span><strong id="scoreStat">0</strong></div>
+        <div class="stat"><span data-i18n="stat_combo">连击</span><strong id="comboStat">0</strong></div>
       </div>
     </section>
 
@@ -510,6 +574,167 @@
 
     const g = ui.canvas.getContext("2d");
 
+    const i18n = {
+      zh: {
+        guide_title: "使用须知",
+        guide_1: "点击左侧选择本地音频并生成谱面。",
+        guide_2: "音符落到判定线时按键（默认 D/F/J/K）。",
+        guide_3: "可切换难度、按键数量、拍号与识别模式。",
+        guide_4: "建议先开“增强识别”，不满意再关闭。",
+        guide_5: "谱面对复杂变拍可能不稳定，属正常现象。",
+        guide_ok: "我知道了",
+        guide_hide: "下次不再显示",
+        title: "前卫核钢琴节奏",
+        subtitle: "上传本地歌曲，自动检测节拍并生成下落音符。音符落到浅灰蓝判定线时按 D / F / J / K。",
+        label_audio: "歌曲文件（mp3/wav/m4a）",
+        label_density: "谱面密度",
+        label_offset: "音符偏移",
+        label_focus: "识别模式",
+        label_beat_track: "节拍追踪",
+        label_enhance: "增强识别",
+        label_timesig: "拍号",
+        label_difficulty: "难度",
+        label_lane: "按键数量",
+        label_lock: "节拍锁定强度",
+        label_sfx: "音效音量",
+        btn_analyze: "分析并生成谱面",
+        btn_regen: "按当前密度重新生成",
+        btn_play: "开始游戏",
+        status_idle: "等待上传歌曲…",
+        status_analyzing: "正在提取打击点…",
+        status_loaded: (name) => `已加载《${name}》，点击“分析并生成谱面”。`,
+        status_ready: (name) => `已为《${name}》生成谱面，可直接开始游戏。`,
+        status_none: "没有检测到足够的打击点，请提高谱面密度或换首节奏更明显的歌。",
+        status_regen: (d) => `已按 ${d}x 密度重建谱面。`,
+        status_playing: "游戏进行中…",
+        status_end: (score) => `歌曲结束，最终分数 ${score}。`,
+        stat_bpm: "估计 BPM",
+        stat_notes: "音符数",
+        stat_key: "调性",
+        stat_score: "分数",
+        stat_combo: "连击",
+        focus_auto: "自动切换（每4小节）",
+        focus_drum: "鼓优先",
+        focus_guitar: "吉他优先",
+        focus_piano: "钢琴优先",
+        focus_vocal: "人声优先",
+        focus_mix: "混合",
+        beat_on: "开",
+        beat_off: "关",
+        enhance_on: "开",
+        enhance_off: "关",
+        time_auto: "自动估计",
+        difficulty_easy: "简单",
+        difficulty_normal: "普通",
+        difficulty_hard: "困难",
+        difficulty_expert: "地狱",
+        lane_keys: (n) => `${n} 键`,
+        custom: "自定义"
+      },
+      en: {
+        guide_title: "Quick Start",
+        guide_1: "Choose a local audio file on the left and generate a chart.",
+        guide_2: "Press when notes hit the judgment line (default D/F/J/K).",
+        guide_3: "Switch difficulty, key count, time signature, and mode.",
+        guide_4: "Try Enhanced mode first; turn it off if needed.",
+        guide_5: "Complex meter changes may reduce accuracy.",
+        guide_ok: "Got it",
+        guide_hide: "Don't show again",
+        title: "Metalcore Piano Rhythm",
+        subtitle: "Upload audio to auto‑generate falling notes. Hit at the judgment line with D / F / J / K.",
+        label_audio: "Audio file (mp3/wav/m4a)",
+        label_density: "Chart Density",
+        label_offset: "Note Offset",
+        label_focus: "Detection Mode",
+        label_beat_track: "Beat Tracking",
+        label_enhance: "Enhanced Mode",
+        label_timesig: "Time Signature",
+        label_difficulty: "Difficulty",
+        label_lane: "Key Count",
+        label_lock: "Beat Lock",
+        label_sfx: "SFX Volume",
+        btn_analyze: "Analyze & Generate",
+        btn_regen: "Regenerate",
+        btn_play: "Start",
+        status_idle: "Waiting for audio…",
+        status_analyzing: "Analyzing onsets…",
+        status_loaded: (name) => `Loaded “${name}”. Click Analyze.`,
+        status_ready: (name) => `Chart ready for “${name}”.`,
+        status_none: "Not enough onsets detected. Increase density or try another track.",
+        status_regen: (d) => `Regenerated at ${d}x density.`,
+        status_playing: "Playing…",
+        status_end: (score) => `Song ended. Final score ${score}.`,
+        stat_bpm: "Estimated BPM",
+        stat_notes: "Notes",
+        stat_key: "Key",
+        stat_score: "Score",
+        stat_combo: "Combo",
+        focus_auto: "Auto (per 4 bars)",
+        focus_drum: "Drum‑focused",
+        focus_guitar: "Guitar‑focused",
+        focus_piano: "Piano‑focused",
+        focus_vocal: "Vocal‑focused",
+        focus_mix: "Mixed",
+        beat_on: "On",
+        beat_off: "Off",
+        enhance_on: "On",
+        enhance_off: "Off",
+        time_auto: "Auto",
+        difficulty_easy: "Easy",
+        difficulty_normal: "Normal",
+        difficulty_hard: "Hard",
+        difficulty_expert: "Expert",
+        lane_keys: (n) => `${n} Keys`,
+        custom: "Custom"
+      }
+    };
+
+    let lang = "zh";
+    const t = (key, ...args) => {
+      const val = i18n[lang][key];
+      return typeof val === "function" ? val(...args) : val;
+    };
+
+    function applyI18n() {
+      document.querySelectorAll("[data-i18n]").forEach((el) => {
+        const key = el.getAttribute("data-i18n");
+        if (i18n[lang][key]) el.textContent = i18n[lang][key];
+      });
+      const focusLabels = {
+        auto: t("focus_auto"),
+        drum: t("focus_drum"),
+        guitar: t("focus_guitar"),
+        piano: t("focus_piano"),
+        vocal: t("focus_vocal"),
+        mix: t("focus_mix")
+      };
+      Array.from(ui.focusMode.options).forEach((opt) => {
+        opt.textContent = focusLabels[opt.value] || opt.value;
+      });
+      const timeAuto = t("time_auto");
+      Array.from(ui.timeSig.options).forEach((opt) => {
+        if (opt.value === "auto") opt.textContent = timeAuto;
+      });
+      const diffLabels = {
+        easy: t("difficulty_easy"),
+        normal: t("difficulty_normal"),
+        hard: t("difficulty_hard"),
+        expert: t("difficulty_expert")
+      };
+      Array.from(ui.difficulty.options).forEach((opt) => {
+        opt.textContent = diffLabels[opt.value] || opt.value;
+      });
+      Array.from(ui.laneCount.options).forEach((opt) => {
+        opt.textContent = t("lane_keys", opt.value);
+      });
+      ui.focusText.textContent = focusLabels[focusMode] || t("focus_mix");
+      ui.beatText.textContent = beatTrack ? t("beat_on") : t("beat_off");
+      ui.enhanceText.textContent = enhanceMode ? t("enhance_on") : t("enhance_off");
+      ui.timeSigText.textContent = timeSig === "auto" ? t("time_auto") : timeSig;
+      ui.difficultyText.textContent = diffLabels[difficulty] || t("difficulty_normal");
+      ui.laneText.textContent = t("lane_keys", laneCount);
+    }
+
     function buildKeyMap() {
       keyMap = {};
       const keys = keySets[laneCount] || keySets[4];
@@ -532,10 +757,10 @@
 
     function updateDifficulty() {
       const map = {
-        easy: { density: 0.8, hit: 0.15, perfect: 0.065, label: "简单" },
-        normal: { density: 1.0, hit: 0.13, perfect: 0.055, label: "普通" },
-        hard: { density: 1.2, hit: 0.11, perfect: 0.05, label: "困难" },
-        expert: { density: 1.45, hit: 0.095, perfect: 0.045, label: "地狱" }
+        easy: { density: 0.8, hit: 0.15, perfect: 0.065, label: t("difficulty_easy") },
+        normal: { density: 1.0, hit: 0.13, perfect: 0.055, label: t("difficulty_normal") },
+        hard: { density: 1.2, hit: 0.11, perfect: 0.05, label: t("difficulty_hard") },
+        expert: { density: 1.45, hit: 0.095, perfect: 0.045, label: t("difficulty_expert") }
       };
       const preset = map[difficulty] || map.normal;
       ui.density.value = String(preset.density);
@@ -1424,7 +1649,7 @@
       if (!audioBuffer) return;
       stopGame();
       resetScore();
-      setStatus("正在提取打击点…");
+      setStatus(t("status_analyzing"));
       render(0);
 
       await new Promise((r) => setTimeout(r, 30));
@@ -1490,9 +1715,7 @@
       ui.play.disabled = chart.length === 0;
       ui.regen.disabled = chart.length === 0;
       setStatus(
-        chart.length
-          ? `已为《${fileName}》生成谱面，可直接开始游戏。`
-          : "没有检测到足够的打击点，请提高谱面密度或换首节奏更明显的歌。",
+        chart.length ? t("status_ready", fileName) : t("status_none"),
         chart.length === 0
       );
       render(0);
@@ -1528,7 +1751,7 @@
       for (const n of chart) n.hit = false;
       ui.notes.textContent = String(chart.length);
       ui.play.disabled = chart.length === 0;
-      setStatus(`已按 ${Number(ui.density.value).toFixed(2)}x 密度重建谱面。`, chart.length === 0);
+      setStatus(t("status_regen", Number(ui.density.value).toFixed(2)), chart.length === 0);
       render(0);
     }
 
@@ -1547,7 +1770,7 @@
       sourceNode.onended = () => {
         running = false;
         cancelAnimationFrame(rafId);
-        setStatus(`歌曲结束，最终分数 ${score}。`);
+        setStatus(t("status_end", score));
         render(audioBuffer.duration + 1);
       };
 
@@ -1555,7 +1778,7 @@
       sourceNode.start(startTime);
       running = true;
       nextMissIndex = 0;
-      setStatus("游戏进行中…");
+      setStatus(t("status_playing"));
       loop();
     }
 
@@ -1573,7 +1796,7 @@
 
       try {
         audioBuffer = await loadAudio(file);
-        setStatus(`已加载《${fileName}》，点击“分析并生成谱面”。`);
+        setStatus(t("status_loaded", fileName));
         ui.analyze.disabled = false;
         ui.bpm.textContent = "-";
         ui.notes.textContent = "-";
@@ -1586,7 +1809,7 @@
 
     ui.density.addEventListener("input", () => {
       ui.densityText.textContent = `${Number(ui.density.value).toFixed(2)}x`;
-      ui.difficultyText.textContent = "自定义";
+      ui.difficultyText.textContent = t("custom");
     });
 
     ui.offset.addEventListener("input", () => {
@@ -1596,40 +1819,22 @@
 
     ui.focusMode.addEventListener("change", () => {
       focusMode = ui.focusMode.value;
-      const map = {
-        auto: "自动切换",
-        drum: "鼓优先",
-        guitar: "吉他优先",
-        piano: "钢琴优先",
-        vocal: "人声优先",
-        mix: "混合"
-      };
-      ui.focusText.textContent = map[focusMode] || "混合";
+      applyI18n();
     });
 
     ui.beatTrack.addEventListener("change", () => {
       beatTrack = ui.beatTrack.checked;
-      ui.beatText.textContent = beatTrack ? "开" : "关";
+      ui.beatText.textContent = beatTrack ? t("beat_on") : t("beat_off");
     });
 
     ui.enhanceMode.addEventListener("change", () => {
       enhanceMode = ui.enhanceMode.checked;
-      ui.enhanceText.textContent = enhanceMode ? "开" : "关";
+      ui.enhanceText.textContent = enhanceMode ? t("enhance_on") : t("enhance_off");
     });
 
     ui.timeSig.addEventListener("change", () => {
       timeSig = ui.timeSig.value;
-      const map = {
-        auto: "自动",
-        "4/4": "4/4",
-        "3/4": "3/4",
-        "7/8": "7/8",
-        "6/8": "6/8",
-        "9/8": "9/8",
-        "5/4": "5/4",
-        "12/8": "12/8"
-      };
-      ui.timeSigText.textContent = map[timeSig] || "自动";
+      ui.timeSigText.textContent = timeSig === "auto" ? t("time_auto") : timeSig;
     });
 
     ui.beatLock.addEventListener("input", () => {
@@ -1658,6 +1863,21 @@
       }
     });
 
+    const guide = document.getElementById("guide");
+    const guideOk = document.getElementById("guideOk");
+    const guideHide = document.getElementById("guideHide");
+    const hideGuide = () => {
+      guide.style.display = "none";
+    };
+    if (localStorage.getItem("hideGuide") === "1") {
+      hideGuide();
+    }
+    guideOk.addEventListener("click", hideGuide);
+    guideHide.addEventListener("click", () => {
+      localStorage.setItem("hideGuide", "1");
+      hideGuide();
+    });
+
     ui.analyze.addEventListener("click", doAnalyze);
     ui.regen.addEventListener("click", regenChart);
     ui.play.addEventListener("click", startGame);
@@ -1670,9 +1890,21 @@
       hitLane(lane);
     });
 
+    const langToggle = document.getElementById("langToggle");
+    langToggle.addEventListener("change", () => {
+      lang = langToggle.value;
+      applyI18n();
+      ui.densityText.textContent = `${Number(ui.density.value).toFixed(2)}x`;
+      ui.offsetText.textContent = `${ui.offset.value} ms`;
+      ui.sfxText.textContent = `${Math.round(sfxVolume * 100)}%`;
+      ui.status.textContent = t("status_idle");
+    });
+
     buildKeyMap();
     updateDifficulty();
     ui.sfxText.textContent = `${Math.round(sfxVolume * 100)}%`;
+    applyI18n();
+    ui.status.textContent = t("status_idle");
     render(0);
   </script>
 </body>
