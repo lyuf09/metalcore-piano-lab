@@ -1018,19 +1018,20 @@
       }
       stopMidiSynth();
       const now = audioCtx.currentTime;
+      const offset = now - startTime;
       for (const o of onsets) {
         const osc = audioCtx.createOscillator();
         const gain = audioCtx.createGain();
         const freq = 440 * Math.pow(2, (o.note - 69) / 12);
         osc.type = "triangle";
-        osc.frequency.setValueAtTime(freq, now + o.t);
-        gain.gain.setValueAtTime(0.0001, now + o.t);
-        gain.gain.exponentialRampToValueAtTime(0.08, now + o.t + 0.02);
-        gain.gain.exponentialRampToValueAtTime(0.0001, now + o.t + 0.25);
+        osc.frequency.setValueAtTime(freq, now + o.t - offset);
+        gain.gain.setValueAtTime(0.0001, now + o.t - offset);
+        gain.gain.exponentialRampToValueAtTime(0.08, now + o.t - offset + 0.02);
+        gain.gain.exponentialRampToValueAtTime(0.0001, now + o.t - offset + 0.25);
         osc.connect(gain);
         gain.connect(midiSynthGain);
-        osc.start(now + o.t);
-        osc.stop(now + o.t + 0.3);
+        osc.start(now + o.t - offset);
+        osc.stop(now + o.t - offset + 0.3);
         midiSynthNodes.push(osc);
       }
     }
@@ -2414,6 +2415,9 @@
 
       startTime = audioCtx.currentTime + 0.08;
       sourceNode.start(startTime);
+      if (currentSource === "midi" && midiOnsets) {
+        scheduleMidiSynth(midiOnsets, estimatedBpm);
+      }
       running = true;
       paused = false;
       pauseOffset = 0;
@@ -2431,6 +2435,7 @@
         running = false;
         paused = true;
         cancelAnimationFrame(rafId);
+        stopMidiSynth();
         if (sourceNode) {
           sourceNode.stop(0);
           sourceNode.disconnect();
@@ -2453,6 +2458,9 @@
         };
         startTime = audioCtx.currentTime - pauseOffset;
         sourceNode.start(0, pauseOffset);
+        if (currentSource === "midi" && midiOnsets) {
+          scheduleMidiSynth(midiOnsets, estimatedBpm);
+        }
         running = true;
         paused = false;
         setStatus(t("status_playing"));
