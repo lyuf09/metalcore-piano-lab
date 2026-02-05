@@ -640,6 +640,7 @@
     let recordChunks = [];
     let recordTimeout = null;
     let recordInterval = null;
+    let lastFrameTs = 0;
 
     const gameState = {
       width: ui.canvas.width,
@@ -1736,6 +1737,7 @@
 
     function loop() {
       if (!running) return;
+      lastFrameTs = performance.now();
       const t = ctx.currentTime - startTime;
       updateMisses(t);
       render(t);
@@ -2210,6 +2212,23 @@
     ui.sample.addEventListener("click", loadSample);
     ui.record.addEventListener("click", startRecording);
     ui.stopRecord.addEventListener("click", stopRecording);
+
+    // Watchdog: restart the render loop if it stalls while audio keeps playing.
+    setInterval(() => {
+      if (!running || paused || !ctx) return;
+      const now = performance.now();
+      if (lastFrameTs && now - lastFrameTs > 600) {
+        cancelAnimationFrame(rafId);
+        loop();
+      }
+    }, 500);
+
+    document.addEventListener("visibilitychange", () => {
+      if (!document.hidden && running && !paused) {
+        cancelAnimationFrame(rafId);
+        loop();
+      }
+    });
 
     window.addEventListener("keydown", (e) => {
       const lane = keyMap[e.key.toLowerCase()];
