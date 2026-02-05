@@ -631,6 +631,7 @@
     let pauseOffset = 0;
     let recorder = null;
     let recordChunks = [];
+    let recordTimeout = null;
 
     const gameState = {
       width: ui.canvas.width,
@@ -1769,6 +1770,10 @@
           if (e.data && e.data.size > 0) recordChunks.push(e.data);
         };
         recorder.onstop = async () => {
+          if (recordTimeout) {
+            clearTimeout(recordTimeout);
+            recordTimeout = null;
+          }
           const blob = new Blob(recordChunks, { type: recorder.mimeType });
           const buf = await blob.arrayBuffer();
           audioBuffer = await ensureAudioContext().decodeAudioData(buf.slice(0));
@@ -1783,6 +1788,11 @@
           stream.getTracks().forEach((t) => t.stop());
         };
         recorder.start();
+        recordTimeout = setTimeout(() => {
+          if (recorder && recorder.state !== "inactive") {
+            recorder.stop();
+          }
+        }, 60000);
         ui.record.disabled = true;
         ui.stopRecord.disabled = false;
         setStatus(t("status_recording"));
