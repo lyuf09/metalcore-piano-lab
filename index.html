@@ -658,6 +658,8 @@
     let midiDuration = 0;
     let currentSource = "audio";
     let midiMode = "auto";
+    let midiSynthGain = null;
+    let midiSynthNodes = [];
 
     let ctx;
     let audioBuffer = null;
@@ -996,6 +998,43 @@
       return buffer;
     }
 
+    function stopMidiSynth() {
+      if (midiSynthNodes.length) {
+        midiSynthNodes.forEach((n) => {
+          try { n.stop(0); } catch {}
+          try { n.disconnect(); } catch {}
+        });
+      }
+      midiSynthNodes = [];
+    }
+
+    function scheduleMidiSynth(onsets, bpm) {
+      if (!onsets || !onsets.length) return;
+      const audioCtx = ensureAudioContext();
+      if (!midiSynthGain) {
+        midiSynthGain = audioCtx.createGain();
+        midiSynthGain.gain.value = 0.12;
+        midiSynthGain.connect(audioCtx.destination);
+      }
+      stopMidiSynth();
+      const now = audioCtx.currentTime;
+      for (const o of onsets) {
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        const freq = 440 * Math.pow(2, (o.note - 69) / 12);
+        osc.type = "triangle";
+        osc.frequency.setValueAtTime(freq, now + o.t);
+        gain.gain.setValueAtTime(0.0001, now + o.t);
+        gain.gain.exponentialRampToValueAtTime(0.08, now + o.t + 0.02);
+        gain.gain.exponentialRampToValueAtTime(0.0001, now + o.t + 0.25);
+        osc.connect(gain);
+        gain.connect(midiSynthGain);
+        osc.start(now + o.t);
+        osc.stop(now + o.t + 0.3);
+        midiSynthNodes.push(osc);
+      }
+    }
+
     function buildReverbImpulse(ctx, seconds = 1.1, decay = 2.6) {
       const rate = ctx.sampleRate;
       const length = Math.floor(rate * seconds);
@@ -1186,6 +1225,7 @@
       running = false;
       cancelAnimationFrame(rafId);
       paused = false;
+      stopMidiSynth();
       if (sourceNode) {
         sourceNode.onended = null;
         sourceNode.stop(0);
@@ -2230,6 +2270,7 @@
           setStatus(`${t("status_ready", fileName)} (Hold 0, Chord ${chordCount})`);
         }
         render(0);
+        scheduleMidiSynth(baseOnsets, estimatedBpm);
         return;
       }
       let baseBuffer = audioBuffer;
