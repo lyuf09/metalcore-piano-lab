@@ -397,6 +397,11 @@
       </div>
 
       <div class="group">
+        <label class="muted" for="midiFile" data-i18n="label_midi">MIDI 文件（.mid/.midi）</label>
+        <input id="midiFile" type="file" accept=".mid,.midi,audio/midi" />
+      </div>
+
+      <div class="group">
         <button id="sampleBtn" class="secondary" data-i18n="btn_sample">示例歌曲：HaM - Haze_zzZ</button>
       </div>
 
@@ -555,6 +560,7 @@
   <script>
     const ui = {
       file: document.getElementById("audioFile"),
+      midi: document.getElementById("midiFile"),
       analyze: document.getElementById("analyzeBtn"),
       regen: document.getElementById("regenBtn"),
       play: document.getElementById("playBtn"),
@@ -629,6 +635,11 @@
     const particles = [];
     let activeHolds = [];
     const pressedKeys = new Set();
+    let midiOnsets = null;
+    let midiBpm = null;
+    let midiTimeSig = null;
+    let midiDuration = 0;
+    let currentSource = "audio";
 
     let ctx;
     let audioBuffer = null;
@@ -675,6 +686,7 @@
         title: "前卫核钢琴节奏",
         subtitle: "上传本地歌曲，自动检测节拍并生成下落音符。音符落到浅灰蓝判定线时按 D / F / J / K。",
         label_audio: "歌曲文件（mp3/wav/m4a）",
+        label_midi: "MIDI 文件（.mid/.midi）",
         label_density: "谱面密度",
         label_offset: "音符偏移",
         label_focus: "识别模式",
@@ -702,6 +714,7 @@
         status_idle: "等待上传歌曲…",
         status_analyzing: "正在提取打击点…",
         status_loaded: (name) => `已加载《${name}》，点击“分析并生成谱面”。`,
+        status_midi_loaded: (name) => `已加载 MIDI《${name}》，点击“分析并生成谱面”。`,
         status_ready: (name) => `已为《${name}》生成谱面，可直接开始游戏。`,
         status_none: "没有检测到足够的打击点，请提高谱面密度或换首节奏更明显的歌。",
         status_regen: (d) => `已按 ${d}x 密度重建谱面。`,
@@ -744,6 +757,7 @@
         title: "Metalcore Piano Rhythm",
         subtitle: "Upload audio to auto‑generate falling notes. Hit at the judgment line with D / F / J / K.",
         label_audio: "Audio file (mp3/wav/m4a)",
+        label_midi: "MIDI file (.mid/.midi)",
         label_density: "Chart Density",
         label_offset: "Note Offset",
         label_focus: "Detection Mode",
@@ -771,6 +785,7 @@
         status_idle: "Waiting for audio…",
         status_analyzing: "Analyzing onsets…",
         status_loaded: (name) => `Loaded “${name}”. Click Analyze.`,
+        status_midi_loaded: (name) => `MIDI loaded: “${name}”. Click Analyze.`,
         status_ready: (name) => `Chart ready for “${name}”.`,
         status_none: "Not enough onsets detected. Increase density or try another track.",
         status_regen: (d) => `Regenerated at ${d}x density.`,
@@ -928,6 +943,13 @@
     function ensureAudioContext() {
       if (!ctx) ctx = new (window.AudioContext || window.webkitAudioContext)();
       return ctx;
+    }
+
+    function createSilentBuffer(duration) {
+      const audioCtx = ensureAudioContext();
+      const length = Math.max(1, Math.floor(duration * audioCtx.sampleRate));
+      const buffer = audioCtx.createBuffer(1, length, audioCtx.sampleRate);
+      return buffer;
     }
 
     function buildReverbImpulse(ctx, seconds = 1.1, decay = 2.6) {
@@ -1310,6 +1332,176 @@
         }
       }
       return merged;
+    }
+
+    function parseMidi(arrayBuffer) {
+      const data = new DataView(arrayBuffer);
+      let idx = 0;
+      const readStr = (n) => {
+        let s = "";
+        for (let i = 0; i < n; i += 1) s += String.fromCharCode(data.getUint8(idx++));
+        return s;
+      };
+      const readU32 = () => {
+        const v = data.getUint32(idx);
+        idx += 4;
+        return v;
+      };
+      const readU16 = () => {
+        const v = data.getUint16(idx);
+        idx += 2;
+        return v;
+      };
+      const readVar = () => {
+        let v = 0;
+        while (true) {
+          const b = data.getUint8(idx++);
+          v = (v << 7) | (b & 0x7f);
+          if ((b & 0x80) === 0) break;
+        }
+        return v;
+      };
+
+      if (readStr(4) !== "MThd") throw new Error("Invalid MIDI header");
+      const headerLen = readU32();
+      const format = readU16();
+      const ntrks = readU16();
+      const division = readU16();
+      idx += Math.max(0, headerLen - 6);
+      if (division & 0x8000) throw new Error("SMPTE MIDI not supported");
+      const ticksPerBeat = division;
+
+      const noteOns = [];
+      const tempos = [];
+      const timesigs = [];
+      let maxTick = 0;
+
+      for (let t = 0; t < ntrks; t += 1) {
+        if (readStr(4) !== "MTrk") throw new Error("Invalid MIDI track");
+        const trackLen = readU32();
+        const trackEnd = idx + trackLen;
+        let tick = 0;
+        let runningStatus = 0;
+        while (idx < trackEnd) {
+          const delta = readVar();
+          tick += delta;
+          if (tick > maxTick) maxTick = tick;
+          let status = data.getUint8(idx++);
+          let firstData = null;
+          if (status < 0x80) {
+            firstData = status;
+            status = runningStatus;
+          } else {
+            runningStatus = status;
+          }
+          if (status === 0xff) {
+            const type = data.getUint8(idx++);
+            const len = readVar();
+            if (type === 0x51 && len === 3) {
+              const mpqn = (data.getUint8(idx) << 16) | (data.getUint8(idx + 1) << 8) | data.getUint8(idx + 2);
+              tempos.push({ tick, mpqn });
+            } else if (type === 0x58 && len >= 4) {
+              const nn = data.getUint8(idx);
+              const dd = data.getUint8(idx + 1);
+              const denom = Math.pow(2, dd);
+              timesigs.push({ tick, nn, denom });
+            }
+            idx += len;
+            continue;
+          }
+          if (status === 0xf0 || status === 0xf7) {
+            const len = readVar();
+            idx += len;
+            continue;
+          }
+          const type = status & 0xf0;
+          const data1 = firstData !== null ? firstData : data.getUint8(idx++);
+          const data2 = (type === 0xc0 || type === 0xd0) ? null : data.getUint8(idx++);
+          if (type === 0x90 && data2 !== null && data2 > 0) {
+            noteOns.push({ tick, note: data1, vel: data2 });
+          }
+        }
+      }
+
+      if (!tempos.length) tempos.push({ tick: 0, mpqn: 500000 });
+      tempos.sort((a, b) => a.tick - b.tick);
+      if (tempos[0].tick !== 0) tempos.unshift({ tick: 0, mpqn: 500000 });
+
+      const segments = [];
+      let secAcc = 0;
+      for (let i = 0; i < tempos.length; i += 1) {
+        const cur = tempos[i];
+        const next = tempos[i + 1];
+        segments.push({ tick: cur.tick, sec: secAcc, mpqn: cur.mpqn });
+        if (next) {
+          const dt = next.tick - cur.tick;
+          secAcc += (dt * cur.mpqn) / 1e6 / ticksPerBeat;
+        }
+      }
+
+      const tickToSec = (tickVal) => {
+        let seg = segments[0];
+        for (let i = 0; i < segments.length; i += 1) {
+          if (segments[i].tick <= tickVal) seg = segments[i];
+          else break;
+        }
+        const dt = tickVal - seg.tick;
+        return seg.sec + (dt * seg.mpqn) / 1e6 / ticksPerBeat;
+      };
+
+      const onsets = noteOns.map((n) => ({
+        t: tickToSec(n.tick),
+        v: n.vel / 127,
+        note: n.note
+      }));
+
+      const bpm = Math.round(60 * 1e6 / tempos[0].mpqn);
+      let timeSig = null;
+      if (timesigs.length) {
+        const ts = timesigs.sort((a, b) => a.tick - b.tick)[0];
+        timeSig = `${ts.nn}/${ts.denom}`;
+      }
+      const duration = tickToSec(maxTick);
+      return { onsets, bpm, timeSig, duration };
+    }
+
+    function buildChartFromMidi(onsets, bpm, density) {
+      if (!onsets.length) return [];
+      const sorted = onsets.slice().sort((a, b) => a.t - b.t);
+      const notes = [];
+      const timeColor = new Map();
+      const colorForTime = (t) => {
+        const key = t.toFixed(3);
+        if (!timeColor.has(key)) timeColor.set(key, toneColor());
+        return timeColor.get(key);
+      };
+      let laneCursor = 0;
+      const groupWindow = 0.02;
+      let i = 0;
+      while (i < sorted.length) {
+        const t0 = sorted[i].t;
+        const group = [];
+        while (i < sorted.length && sorted[i].t - t0 <= groupWindow) {
+          group.push(sorted[i]);
+          i += 1;
+        }
+        if (Math.random() > density * 1.1) continue;
+        group.sort((a, b) => a.note - b.note);
+        const c = colorForTime(t0);
+        if (group.length === 1) {
+          const lane = laneCursor % laneCount;
+          laneCursor += 1;
+          notes.push({ t: t0, lane, type: "tap", color: c });
+        } else {
+          const count = Math.min(group.length, laneCount);
+          for (let j = 0; j < count; j += 1) {
+            const lane = count === 1 ? laneCursor % laneCount : Math.round(j * (laneCount - 1) / (count - 1));
+            notes.push({ t: t0, lane, type: "tap", color: c });
+          }
+          laneCursor += 1;
+        }
+      }
+      return notes;
     }
 
     function estimateBpmFromOnsets(onsets) {
@@ -1828,10 +2020,13 @@
         const buf = await res.arrayBuffer();
         audioBuffer = await ensureAudioContext().decodeAudioData(buf.slice(0));
         fileName = "HaM - Haze_zzZ";
+        currentSource = "audio";
         ui.analyze.disabled = false;
         ui.bpm.textContent = "-";
         ui.notes.textContent = "-";
         ui.keyStat.textContent = "-";
+        ui.hold.textContent = "0";
+        ui.chord.textContent = "0";
         setStatus(t("status_loaded", fileName));
       } catch (err) {
         setStatus(`Sample load failed: ${err.message || err}`, true);
@@ -1860,6 +2055,7 @@
           const buf = await blob.arrayBuffer();
           audioBuffer = await ensureAudioContext().decodeAudioData(buf.slice(0));
           fileName = "Mic Recording";
+          currentSource = "audio";
           ui.analyze.disabled = false;
           ui.bpm.textContent = "-";
           ui.notes.textContent = "-";
@@ -1901,13 +2097,52 @@
     }
 
     async function doAnalyze() {
-      if (!audioBuffer) return;
+      if (!audioBuffer && !midiOnsets) return;
       stopGame();
       resetScore();
       setStatus(t("status_analyzing"));
       render(0);
 
       await new Promise((r) => setTimeout(r, 30));
+      if (currentSource === "midi" && midiOnsets) {
+        estimatedBpm = midiBpm || 120;
+        baseOnsets = midiOnsets;
+        if (midiTimeSig && (["4/4", "3/4", "5/4", "7/8", "6/8", "9/8", "12/8"].includes(midiTimeSig))) {
+          timeSig = midiTimeSig;
+        }
+        if (timeSig === "auto") {
+          const est = estimateTimeSignature(baseOnsets, estimatedBpm);
+          barBeats = est.beats;
+          ui.timeSigText.textContent = est.label;
+        } else {
+          const parsed = parseTimeSig(timeSig);
+          barBeats = parsed.beats;
+          ui.timeSigText.textContent = parsed.label;
+        }
+        const chartNotes = buildChartFromMidi(baseOnsets, estimatedBpm, Number(ui.density.value));
+        chart = chartNotes;
+        for (const n of chart) n.hit = false;
+        ui.bpm.textContent = String(estimatedBpm);
+        ui.notes.textContent = String(chart.length);
+        ui.play.disabled = chart.length === 0;
+        ui.pause.disabled = chart.length === 0;
+        const byTime = new Map();
+        for (const n of chart) {
+          const k = n.t.toFixed(3);
+          byTime.set(k, (byTime.get(k) || 0) + 1);
+        }
+        let chordCount = 0;
+        for (const v of byTime.values()) if (v > 1) chordCount += 1;
+        ui.hold.textContent = "0";
+        ui.chord.textContent = String(chordCount);
+        if (chart.length === 0) {
+          setStatus(t("status_none"), true);
+        } else {
+          setStatus(`${t("status_ready", fileName)} (Hold 0, Chord ${chordCount})`);
+        }
+        render(0);
+        return;
+      }
       let baseBuffer = audioBuffer;
       const modeBuffers = {};
       try {
@@ -1962,7 +2197,6 @@
       } else {
         const chosen = onsetsByMode[focusMode] || onsetsByMode.mix;
         chart = buildChartFromOnsets(chosen, estimatedBpm, Number(ui.density.value), beatOffset, beatLock);
-        chart = ensureHoldsAndChords(chart, estimatedBpm);
       }
       for (const n of chart) n.hit = false;
 
@@ -2018,7 +2252,6 @@
       } else {
         const chosen = onsetsByMode[focusMode] || onsetsByMode.mix;
         chart = buildChartFromOnsets(chosen, estimatedBpm, Number(ui.density.value), beatOffset, beatLock);
-        chart = ensureHoldsAndChords(chart, estimatedBpm);
       }
       for (const n of chart) n.hit = false;
       ui.notes.textContent = String(chart.length);
@@ -2103,6 +2336,7 @@
       if (!file) return;
       fileName = file.name;
       setStatus("正在解码音频…");
+      currentSource = "audio";
       ui.analyze.disabled = true;
       ui.play.disabled = true;
       ui.pause.disabled = true;
@@ -2118,9 +2352,36 @@
         ui.bpm.textContent = "-";
         ui.notes.textContent = "-";
         ui.keyStat.textContent = "-";
+        ui.hold.textContent = "0";
+        ui.chord.textContent = "0";
       } catch (err) {
         audioBuffer = null;
         setStatus(`音频加载失败：${err.message || err}`, true);
+      }
+    });
+
+    ui.midi.addEventListener("change", async (e) => {
+      const file = e.target.files && e.target.files[0];
+      if (!file) return;
+      try {
+        const buf = await file.arrayBuffer();
+        const parsed = parseMidi(buf);
+        midiOnsets = parsed.onsets;
+        midiBpm = parsed.bpm;
+        midiTimeSig = parsed.timeSig;
+        midiDuration = parsed.duration;
+        currentSource = "midi";
+        fileName = file.name.replace(/\.(mid|midi)$/i, "");
+        audioBuffer = createSilentBuffer(Math.max(2, midiDuration + 1));
+        setStatus(t("status_midi_loaded", fileName));
+        ui.analyze.disabled = false;
+        ui.bpm.textContent = midiBpm ? String(midiBpm) : "-";
+        ui.notes.textContent = "-";
+        ui.keyStat.textContent = "-";
+        ui.hold.textContent = "0";
+        ui.chord.textContent = "0";
+      } catch (err) {
+        setStatus(`MIDI 读取失败：${err.message || err}`, true);
       }
     });
 
