@@ -409,6 +409,10 @@
       <div class="group">
         <button id="recordBtn" class="secondary" data-i18n="btn_record">录音模式：开始</button>
         <button id="stopRecordBtn" class="secondary" disabled data-i18n="btn_record_stop">停止录音</button>
+        <div class="row">
+          <span class="muted" data-i18n="record_timer_label">剩余录音</span>
+          <span id="recordTimer" class="muted">60s</span>
+        </div>
       </div>
 
         <div class="group">
@@ -556,6 +560,7 @@
       sample: document.getElementById("sampleBtn"),
       record: document.getElementById("recordBtn"),
       stopRecord: document.getElementById("stopRecordBtn"),
+      recordTimer: document.getElementById("recordTimer"),
       density: document.getElementById("density"),
       densityText: document.getElementById("densityText"),
       offset: document.getElementById("offset"),
@@ -632,6 +637,7 @@
     let recorder = null;
     let recordChunks = [];
     let recordTimeout = null;
+    let recordInterval = null;
 
     const gameState = {
       width: ui.canvas.width,
@@ -664,6 +670,7 @@
         label_lane: "按键数量",
         label_lock: "节拍锁定强度",
         label_sfx: "音效音量",
+        record_timer_label: "剩余录音",
         hint_files: "可从“文件”或网盘选择音频",
         btn_analyze: "分析并生成谱面",
         btn_regen: "按当前密度重新生成",
@@ -730,6 +737,7 @@
         label_lane: "Key Count",
         label_lock: "Beat Lock",
         label_sfx: "SFX Volume",
+        record_timer_label: "Recording left",
         hint_files: "Choose audio from Files or cloud drives",
         btn_analyze: "Analyze & Generate",
         btn_regen: "Regenerate",
@@ -1774,6 +1782,11 @@
             clearTimeout(recordTimeout);
             recordTimeout = null;
           }
+          if (recordInterval) {
+            clearInterval(recordInterval);
+            recordInterval = null;
+          }
+          ui.recordTimer.textContent = "60s";
           const blob = new Blob(recordChunks, { type: recorder.mimeType });
           const buf = await blob.arrayBuffer();
           audioBuffer = await ensureAudioContext().decodeAudioData(buf.slice(0));
@@ -1788,6 +1801,17 @@
           stream.getTracks().forEach((t) => t.stop());
         };
         recorder.start();
+        let remaining = 60;
+        ui.recordTimer.textContent = `${remaining}s`;
+        recordInterval = setInterval(() => {
+          remaining -= 1;
+          if (remaining <= 0) {
+            remaining = 0;
+            clearInterval(recordInterval);
+            recordInterval = null;
+          }
+          ui.recordTimer.textContent = `${remaining}s`;
+        }, 1000);
         recordTimeout = setTimeout(() => {
           if (recorder && recorder.state !== "inactive") {
             recorder.stop();
@@ -2126,6 +2150,7 @@
     ui.sfxText.textContent = `${Math.round(sfxVolume * 100)}%`;
     applyI18n();
     ui.status.textContent = t("status_idle");
+    ui.recordTimer.textContent = "60s";
     updateMobileToggle();
     render(0);
   </script>
