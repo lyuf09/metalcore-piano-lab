@@ -1008,6 +1008,26 @@
       midiSynthNodes = [];
     }
 
+    function reduceOnsetsForSynth(onsets, maxNotes = 500) {
+      if (!onsets || onsets.length <= maxNotes) return onsets;
+      const sorted = onsets.slice().sort((a, b) => a.t - b.t);
+      const groupWindow = 0.03;
+      const reduced = [];
+      let i = 0;
+      while (i < sorted.length) {
+        const t0 = sorted[i].t;
+        let best = sorted[i];
+        while (i < sorted.length && sorted[i].t - t0 <= groupWindow) {
+          if (sorted[i].vel > best.vel) best = sorted[i];
+          i += 1;
+        }
+        reduced.push(best);
+      }
+      if (reduced.length <= maxNotes) return reduced;
+      const stride = Math.ceil(reduced.length / maxNotes);
+      return reduced.filter((_, idx) => idx % stride === 0);
+    }
+
     function scheduleMidiSynth(onsets, bpm) {
       if (!onsets || !onsets.length) return;
       const audioCtx = ensureAudioContext();
@@ -1019,19 +1039,21 @@
       stopMidiSynth();
       const now = audioCtx.currentTime;
       const offset = now - startTime;
-      for (const o of onsets) {
+      const reduced = reduceOnsetsForSynth(onsets, 500);
+      for (const o of reduced) {
         const osc = audioCtx.createOscillator();
         const gain = audioCtx.createGain();
         const freq = 440 * Math.pow(2, (o.note - 69) / 12);
         osc.type = "triangle";
-        osc.frequency.setValueAtTime(freq, now + o.t - offset);
-        gain.gain.setValueAtTime(0.0001, now + o.t - offset);
-        gain.gain.exponentialRampToValueAtTime(0.08, now + o.t - offset + 0.02);
-        gain.gain.exponentialRampToValueAtTime(0.0001, now + o.t - offset + 0.25);
+        const startAt = Math.max(audioCtx.currentTime + 0.01, now + o.t - offset);
+        osc.frequency.setValueAtTime(freq, startAt);
+        gain.gain.setValueAtTime(0.0001, startAt);
+        gain.gain.exponentialRampToValueAtTime(0.07, startAt + 0.02);
+        gain.gain.exponentialRampToValueAtTime(0.0001, startAt + 0.22);
         osc.connect(gain);
         gain.connect(midiSynthGain);
-        osc.start(now + o.t - offset);
-        osc.stop(now + o.t - offset + 0.3);
+        osc.start(startAt);
+        osc.stop(startAt + 0.26);
         midiSynthNodes.push(osc);
       }
     }
@@ -2271,7 +2293,6 @@
           setStatus(`${t("status_ready", fileName)} (Hold 0, Chord ${chordCount})`);
         }
         render(0);
-        scheduleMidiSynth(baseOnsets, estimatedBpm);
         return;
       }
       let baseBuffer = audioBuffer;
