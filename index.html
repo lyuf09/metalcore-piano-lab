@@ -746,6 +746,8 @@
     let keyLabel = "-";
     let keyBaseFreq = 1760;
     const particles = [];
+    const MAX_PARTICLES = 520;
+    const HEAVY_PARTICLE_THRESHOLD = 260;
     let activeHolds = [];
     const pressedKeys = new Set();
     let midiOnsets = null;
@@ -2445,6 +2447,11 @@
       ctx2d.closePath();
     }
 
+    function pushParticle(p) {
+      if (particles.length >= MAX_PARTICLES) return;
+      particles.push(p);
+    }
+
     function drawLuxNote(x, y, w, h, color, glow = 1) {
       g.save();
       const grad = g.createLinearGradient(x, y, x, y + h);
@@ -2570,6 +2577,7 @@
       // Particle sparkles.
       g.save();
       g.globalCompositeOperation = "lighter";
+      const lightweightParticles = particles.length > HEAVY_PARTICLE_THRESHOLD;
       for (let i = particles.length - 1; i >= 0; i -= 1) {
         const p = particles[i];
         const age = currentTime - p.t;
@@ -2592,31 +2600,40 @@
         } else {
           const gold = p.tint === "gold";
           const rr = p.r * (0.95 + 0.55 * alpha);
-          const grad = g.createRadialGradient(px, py, 0, px, py, rr * 2.4);
-          if (gold) {
-            grad.addColorStop(0, `rgba(255, 247, 228, ${0.92 * alpha})`);
-            grad.addColorStop(0.32, `rgba(255, 226, 166, ${0.56 * alpha})`);
-            grad.addColorStop(1, `rgba(255, 210, 120, 0)`);
+          if (lightweightParticles) {
+            g.fillStyle = gold
+              ? `rgba(255, 236, 192, ${0.62 * alpha})`
+              : `rgba(242, 248, 255, ${0.62 * alpha})`;
+            g.beginPath();
+            g.arc(px, py, rr * 0.95, 0, Math.PI * 2);
+            g.fill();
           } else {
-            grad.addColorStop(0, `rgba(255, 255, 255, ${0.95 * alpha})`);
-            grad.addColorStop(0.34, `rgba(228, 242, 255, ${0.56 * alpha})`);
-            grad.addColorStop(1, `rgba(196, 220, 242, 0)`);
+            const grad = g.createRadialGradient(px, py, 0, px, py, rr * 2.4);
+            if (gold) {
+              grad.addColorStop(0, `rgba(255, 247, 228, ${0.92 * alpha})`);
+              grad.addColorStop(0.32, `rgba(255, 226, 166, ${0.56 * alpha})`);
+              grad.addColorStop(1, `rgba(255, 210, 120, 0)`);
+            } else {
+              grad.addColorStop(0, `rgba(255, 255, 255, ${0.95 * alpha})`);
+              grad.addColorStop(0.34, `rgba(228, 242, 255, ${0.56 * alpha})`);
+              grad.addColorStop(1, `rgba(196, 220, 242, 0)`);
+            }
+            g.shadowBlur = 10;
+            g.shadowColor = gold
+              ? `rgba(255, 218, 148, ${0.45 * alpha})`
+              : `rgba(230, 242, 255, ${0.45 * alpha})`;
+            g.fillStyle = grad;
+            g.beginPath();
+            g.arc(px, py, rr * 2.4, 0, Math.PI * 2);
+            g.fill();
+            g.fillStyle = gold
+              ? `rgba(255, 244, 220, ${0.72 * alpha})`
+              : `rgba(252, 255, 255, ${0.74 * alpha})`;
+            g.beginPath();
+            g.arc(px, py, rr * 0.78, 0, Math.PI * 2);
+            g.fill();
+            g.shadowBlur = 0;
           }
-          g.shadowBlur = 10;
-          g.shadowColor = gold
-            ? `rgba(255, 218, 148, ${0.45 * alpha})`
-            : `rgba(230, 242, 255, ${0.45 * alpha})`;
-          g.fillStyle = grad;
-          g.beginPath();
-          g.arc(px, py, rr * 2.4, 0, Math.PI * 2);
-          g.fill();
-          g.fillStyle = gold
-            ? `rgba(255, 244, 220, ${0.72 * alpha})`
-            : `rgba(252, 255, 255, ${0.74 * alpha})`;
-          g.beginPath();
-          g.arc(px, py, rr * 0.78, 0, Math.PI * 2);
-          g.fill();
-          g.shadowBlur = 0;
         }
       }
       g.restore();
@@ -2693,7 +2710,7 @@
         const angle = Math.random() * Math.PI * 2;
         const speed = (Math.random() * 78 + 58) * (perfect ? 1.08 : 1);
         const tint = Math.random() < 0.34 ? "gold" : "white";
-        particles.push({
+        pushParticle({
           x: baseX + (Math.random() * 16 - 8),
           y: baseY + (Math.random() * 6 - 3),
           vx: Math.cos(angle) * speed,
@@ -2704,7 +2721,7 @@
           life: 0.32 + Math.random() * 0.14
         });
       }
-      particles.push({
+      pushParticle({
         kind: "ring",
         tint: "white",
         x: baseX,
@@ -2716,7 +2733,7 @@
         t,
         life: perfect ? 0.2 : 0.17
       });
-      particles.push({
+      pushParticle({
         kind: "ring",
         tint: "gold",
         x: baseX,
@@ -2737,7 +2754,7 @@
       for (let i = 0; i < 4; i += 1) {
         const angle = (Math.random() - 0.5) * Math.PI;
         const speed = 22 + Math.random() * 24;
-        particles.push({
+        pushParticle({
           x: x + (Math.random() * 10 - 5),
           y: y + (Math.random() * 4 - 2),
           vx: Math.cos(angle) * speed,
