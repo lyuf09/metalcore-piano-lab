@@ -2142,12 +2142,56 @@
       }
 
       const channels = Array.from(byChannel.values()).map((info) => {
+        const ordered = info.notes.slice().sort((a, b) => a.t - b.t);
+        const unique = new Set();
+        let samePitch = 0;
+        let intervalSum = 0;
+        let intervalSq = 0;
+        let intervalCount = 0;
+        let prevNote = null;
+        for (const n of ordered) {
+          unique.add(n.note);
+          if (prevNote) {
+            const d = Math.abs(n.note - prevNote.note);
+            intervalSum += d;
+            intervalSq += d * d;
+            intervalCount += 1;
+            if (n.note === prevNote.note) samePitch += 1;
+          }
+          prevNote = n;
+        }
+        const uniqueRatio = unique.size / Math.max(1, info.count);
+        const avgInterval = intervalCount ? intervalSum / intervalCount : 0;
+        const intervalVar = intervalCount ? Math.max(0, intervalSq / intervalCount - avgInterval * avgInterval) : 0;
+        const intervalStd = Math.sqrt(intervalVar);
+        const repeatRatio = intervalCount ? samePitch / intervalCount : 1;
+        const density = info.count / Math.max(4, durationSec || 240);
         const avgPitch = info.sumPitch / info.count;
         const avgVel = info.sumVel / info.count;
         const range = info.maxPitch - info.minPitch;
         const domProg = pickDominantProgram(info.progCounts);
         const type = classifyProgram(domProg);
-        return { ...info, avgPitch, avgVel, range, domProg, type };
+        const melodicScore =
+          uniqueRatio * 2.2 +
+          Math.min(1.2, range / 24) * 0.9 +
+          Math.min(1.4, avgInterval / 6) * 0.7 +
+          Math.min(1.2, intervalStd / 6) * 0.7 +
+          Math.min(1.2, density / 6) * 0.2 -
+          repeatRatio * 2.0;
+        return {
+          ...info,
+          avgPitch,
+          avgVel,
+          range,
+          domProg,
+          type,
+          uniqueRatio,
+          repeatRatio,
+          avgInterval,
+          intervalStd,
+          density,
+          melodicScore
+        };
       });
       if (!channels.length) return [];
 
@@ -2164,23 +2208,23 @@
       const leadCandidates = channels.filter((c) => c.type === "lead");
       let melodyCh = null;
       if (leadCandidates.length) {
-        leadCandidates.sort((a, b) => b.count - a.count);
+        leadCandidates.sort((a, b) => b.melodicScore - a.melodicScore);
         melodyCh = leadCandidates[0].ch;
       } else {
         const melodyCandidates = channels
           .filter((c) => c.ch !== bassCh)
-          .sort((a, b) => {
-            const sa = a.avgPitch * 0.8 + a.count * 0.2;
-            const sb = b.avgPitch * 0.8 + b.count * 0.2;
-            return sb - sa;
-          });
+          .sort((a, b) => b.melodicScore - a.melodicScore);
         melodyCh = melodyCandidates[0]?.ch ?? bassCh;
       }
 
       let instrCandidates = channels.filter((c) => c.type === "piano" || c.type === "guitar");
       instrCandidates = instrCandidates.filter((c) => c.ch !== melodyCh && c.ch !== bassCh);
-      instrCandidates.sort((a, b) => b.count - a.count);
+      instrCandidates.sort((a, b) => b.melodicScore - a.melodicScore);
       let instrCh = instrCandidates[0]?.ch ?? null;
+      if (instrCh !== null) {
+        const picked = instrCandidates.find((c) => c.repeatRatio < 0.55 && c.uniqueRatio >= 0.18);
+        if (picked) instrCh = picked.ch;
+      }
 
       const roleByChannel = new Map();
       if (melodyCh !== null && melodyCh !== undefined) roleByChannel.set(melodyCh, "melody");
