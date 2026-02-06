@@ -730,7 +730,7 @@
     let laneCount = 4;
     let hitWindow = 0.13;
     let perfectWindow = 0.055;
-    const SCROLL_TIME = 2.4;
+    let scrollTime = 2.1;
     let offsetSec = 0;
     let focusMode = "auto";
     let beatTrack = true;
@@ -1232,6 +1232,12 @@
           midiSynthNodes.push(sub);
         }
       }
+    }
+
+    function computeScrollTimeFromBpm(bpm) {
+      const safeBpm = Math.max(70, Math.min(220, bpm || 120));
+      // Faster songs should visually fall faster.
+      return Math.max(1.28, Math.min(2.35, 230 / safeBpm));
     }
 
     function buildReverbImpulse(ctx, seconds = 1.1, decay = 2.6) {
@@ -2539,7 +2545,7 @@
         const note = chart[i];
         if (note.hit) continue;
         const dt = (note.t + offsetSec) - currentTime;
-        if (dt > SCROLL_TIME) break;
+        if (dt > scrollTime) break;
         const x = note.lane * laneWidth + 12;
         const w = laneWidth - 24;
         const color = note.color || laneColor(note.lane);
@@ -2547,8 +2553,8 @@
           const endDt = (note.end + offsetSec) - currentTime;
           if (endDt < -hitWindow) continue;
           const holdActive = !!(activeHolds[note.lane] && activeHolds[note.lane].note === note);
-          const yHead = holdActive ? judgeY : (judgeY - (dt / SCROLL_TIME) * (height - 40));
-          const yTail = judgeY - (endDt / SCROLL_TIME) * (height - 40);
+          const yHead = holdActive ? judgeY : (judgeY - (dt / scrollTime) * (height - 40));
+          const yTail = judgeY - (endDt / scrollTime) * (height - 40);
           const y0 = Math.min(yHead, yTail);
           const y1 = Math.max(yHead, yTail);
           const bodyH = Math.max(12, y1 - y0);
@@ -2569,7 +2575,7 @@
           // tail cap
           drawLuxNote(x + 4, yTail - 8, w - 8, 12, "rgba(232,240,248,0.7)", 0.8);
         } else {
-          const y = judgeY - (dt / SCROLL_TIME) * (height - 40);
+          const y = judgeY - (dt / scrollTime) * (height - 40);
           drawLuxNote(x, y - 9, w, 18, color, 1);
         }
       }
@@ -2957,13 +2963,17 @@
       if (currentSource === "midi" && midiOnsets) {
         estimatedBpm = midiBpm || 120;
         let playbackSource = midiOnsets;
-        baseOnsets = filterMidiOnsets(midiOnsets, midiMode);
         if (estimatedBpm < 100) {
           estimatedBpm *= 2;
-          baseOnsets = baseOnsets.map((o) => ({ ...o, t: o.t / 2 }));
           playbackSource = playbackSource.map((o) => ({ ...o, t: o.t / 2 }));
         }
         midiPlaybackOnsets = selectMidiPlaybackOnsets(playbackSource, midiDuration);
+        if (!midiPlaybackOnsets || !midiPlaybackOnsets.length) {
+          midiPlaybackOnsets = playbackSource;
+        }
+        // For MIDI gameplay, chart and background playback share the same 3-track source.
+        baseOnsets = midiPlaybackOnsets;
+        scrollTime = computeScrollTimeFromBpm(estimatedBpm);
         if (midiTimeSig && (["4/4", "3/4", "5/4", "7/8", "6/8", "9/8", "12/8"].includes(midiTimeSig))) {
           timeSig = midiTimeSig;
         }
@@ -3027,6 +3037,7 @@
         ? mergeOnsetsWeighted(onsetsByMode, { drum: 1.2, bass: 1.1, guitar: 1.0, piano: 0.9, vocal: 0.8, mix: 0.9 })
         : onsetsByMode.mix;
       estimatedBpm = estimateBpmFromOnsets(baseOnsets);
+      scrollTime = computeScrollTimeFromBpm(estimatedBpm);
       const keyInfo = estimateKeyFromBuffer(audioBuffer);
       keyLabel = keyInfo.label;
       keyBaseFreq = 440 * Math.pow(2, (keyInfo.root - 9) / 12) * 4;
@@ -3087,6 +3098,7 @@
       if (!baseOnsets.length || !onsetsByMode) return;
       stopGame();
       resetScore();
+      scrollTime = computeScrollTimeFromBpm(estimatedBpm);
       beatOffset = beatTrack ? estimateBeatPhase(baseOnsets, estimatedBpm) : 0;
       if (timeSig === "auto") {
         const est = estimateTimeSignature(baseOnsets, estimatedBpm);
