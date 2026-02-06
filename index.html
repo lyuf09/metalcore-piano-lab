@@ -630,14 +630,26 @@
         <input id="beatLock" type="range" min="0" max="1" value="0.65" step="0.05" />
       </div>
 
-      <div class="group">
-        <div class="row">
-          <label class="muted" for="sfxVolume" data-i18n="label_sfx">音效音量</label>
-          <span id="sfxText" class="muted">80%</span>
+        <div class="group">
+          <div class="row">
+            <label class="muted" for="sfxVolume" data-i18n="label_sfx">音效音量</label>
+            <span id="sfxText" class="muted">80%</span>
+          </div>
+          <input id="sfxVolume" type="range" min="0" max="1.4" value="0.8" step="0.05" />
         </div>
-        <input id="sfxVolume" type="range" min="0" max="1.4" value="0.8" step="0.05" />
-      </div>
-      </div>
+
+        <div class="group">
+          <div class="row">
+            <label class="muted" for="fxQuality" data-i18n="label_fx_quality">特效档位</label>
+            <span id="fxQualityText" class="muted" data-i18n="fx_high">高</span>
+          </div>
+          <select id="fxQuality">
+            <option value="off" data-i18n="fx_off">关</option>
+            <option value="medium" data-i18n="fx_medium">中</option>
+            <option value="high" selected data-i18n="fx_high">高</option>
+          </select>
+        </div>
+        </div>
 
       <div class="group">
         <button id="analyzeBtn" disabled data-i18n="btn_analyze">分析并生成谱面</button>
@@ -656,6 +668,19 @@
         <div class="stat"><span data-i18n="stat_combo">连击</span><strong id="comboStat">0</strong></div>
         <div class="stat"><span data-i18n="stat_hold">Hold</span><strong id="holdStat">0</strong></div>
         <div class="stat"><span data-i18n="stat_chord">Chord</span><strong id="chordStat">0</strong></div>
+      </div>
+
+      <div class="guide-card">
+        <div class="row space-between">
+          <strong data-i18n="guide_quickstart">快速上手</strong>
+          <span class="muted" data-i18n="guide_hint">判定线发光时按键</span>
+        </div>
+        <ol class="guide-list">
+          <li data-i18n="guide_step1">点击“示例歌曲”试听，再用你的歌生成谱面。</li>
+          <li data-i18n="guide_step2">开局会有3秒倒计时，判定线会脉冲提示拍点。</li>
+          <li data-i18n="guide_step3">长按音符需要按住到尾端发光块结束。</li>
+          <li data-i18n="guide_step4">卡顿时把特效档位调到“中”或“关”。</li>
+        </ol>
       </div>
     </section>
 
@@ -705,6 +730,8 @@
       beatLockText: document.getElementById("beatLockText"),
       sfxVolume: document.getElementById("sfxVolume"),
       sfxText: document.getElementById("sfxText"),
+      fxQuality: document.getElementById("fxQuality"),
+      fxQualityText: document.getElementById("fxQualityText"),
       status: document.getElementById("status"),
       bpm: document.getElementById("bpmStat"),
       notes: document.getElementById("noteStat"),
@@ -743,13 +770,18 @@
     let difficulty = "normal";
     let enhanceMode = true;
     let laneFlash = [];
-    const FLASH_DURATION = 0.2;
+    let FLASH_DURATION = 0.2;
+    let fxQuality = "high";
+    let countdownActive = false;
+    let countdownEnd = 0;
     let sfxVolume = 0.8;
     let keyLabel = "-";
     let keyBaseFreq = 1760;
     const particles = [];
-    const MAX_PARTICLES = 220;
-    const HEAVY_PARTICLE_THRESHOLD = 120;
+    let MAX_PARTICLES = 220;
+    let HEAVY_PARTICLE_THRESHOLD = 120;
+    let FX_GLOW = 1;
+    let FX_PARTICLE_GLOW = 1;
     let activeHolds = [];
     const pressedKeys = new Set();
     let midiOnsets = null;
@@ -773,6 +805,7 @@
     let midiScheduleCursor = 0;
     let midiScheduleOnsets = null;
     let midiScheduleSongOffset = 0;
+    applyFxQuality(fxQuality);
 
     let ctx;
     let audioBuffer = null;
@@ -831,6 +864,10 @@
         label_lane: "按键数量",
         label_lock: "节拍锁定强度",
         label_sfx: "音效音量",
+        label_fx_quality: "特效档位",
+        fx_off: "关",
+        fx_medium: "中",
+        fx_high: "高",
         record_timer_label: "剩余录音",
         hint_files: "可从“文件”或网盘选择音频",
         btn_analyze: "分析并生成谱面",
@@ -867,6 +904,13 @@
         stat_combo: "连击",
         stat_hold: "Hold",
         stat_chord: "Chord",
+        guide_quickstart: "快速上手",
+        guide_hint: "判定线发光时按键",
+        guide_step1: "点击“示例歌曲”试听，再用你的歌生成谱面。",
+        guide_step2: "开局会有3秒倒计时，判定线会脉冲提示拍点。",
+        guide_step3: "长按音符需要按住到尾端发光块结束。",
+        guide_step4: "卡顿时把特效档位调到“中”或“关”。",
+        countdown_hint: "判定线发光时按键",
         focus_auto: "自动切换（每4小节）",
         focus_drum: "鼓优先",
         focus_guitar: "吉他优先",
@@ -909,6 +953,10 @@
         label_lane: "Key Count",
         label_lock: "Beat Lock",
         label_sfx: "SFX Volume",
+        label_fx_quality: "FX Quality",
+        fx_off: "Off",
+        fx_medium: "Medium",
+        fx_high: "High",
         record_timer_label: "Recording left",
         hint_files: "Choose audio from Files or cloud drives",
         btn_analyze: "Analyze & Generate",
@@ -945,6 +993,13 @@
         stat_combo: "Combo",
         stat_hold: "Hold",
         stat_chord: "Chord",
+        guide_quickstart: "Quick Start",
+        guide_hint: "Hit when the line glows",
+        guide_step1: "Try the sample track, then load yours to generate a chart.",
+        guide_step2: "A 3s countdown will pulse the judgment line before start.",
+        guide_step3: "For holds, keep pressing until the glowing tail ends.",
+        guide_step4: "If it stutters, lower FX Quality to Medium or Off.",
+        countdown_hint: "Hit when the line glows",
         focus_auto: "Auto (per 4 bars)",
         focus_drum: "Drum‑focused",
         focus_guitar: "Guitar‑focused",
@@ -1003,6 +1058,14 @@
       Array.from(ui.laneCount.options).forEach((opt) => {
         opt.textContent = t("lane_keys", opt.value);
       });
+      const fxLabels = {
+        off: t("fx_off"),
+        medium: t("fx_medium"),
+        high: t("fx_high")
+      };
+      Array.from(ui.fxQuality.options).forEach((opt) => {
+        opt.textContent = fxLabels[opt.value] || opt.value;
+      });
       const midiLabels = {
         auto: t("midi_auto"),
         melody: t("midi_melody"),
@@ -1021,6 +1084,7 @@
       ui.timeSigText.textContent = timeSig === "auto" ? t("time_auto") : timeSig;
       ui.difficultyText.textContent = diffLabels[difficulty] || t("difficulty_normal");
       ui.laneText.textContent = t("lane_keys", laneCount);
+      ui.fxQualityText.textContent = fxLabels[fxQuality] || t("fx_high");
       ui.pause.textContent = paused ? t("btn_resume") : t("btn_pause");
     }
 
@@ -2414,6 +2478,29 @@
       return out;
     }
 
+    function applyFxQuality(q) {
+      fxQuality = q;
+      if (q === "off") {
+        MAX_PARTICLES = 24;
+        HEAVY_PARTICLE_THRESHOLD = 10;
+        FX_GLOW = 0.35;
+        FX_PARTICLE_GLOW = 0.4;
+        FLASH_DURATION = 0.1;
+      } else if (q === "medium") {
+        MAX_PARTICLES = 120;
+        HEAVY_PARTICLE_THRESHOLD = 70;
+        FX_GLOW = 0.7;
+        FX_PARTICLE_GLOW = 0.7;
+        FLASH_DURATION = 0.16;
+      } else {
+        MAX_PARTICLES = 220;
+        HEAVY_PARTICLE_THRESHOLD = 120;
+        FX_GLOW = 1;
+        FX_PARTICLE_GLOW = 1;
+        FLASH_DURATION = 0.2;
+      }
+    }
+
     function resolveHoldTapConflicts(notes, bpm) {
       if (!notes.length) return notes;
       const beat = 60 / Math.max(70, bpm || 120);
@@ -3160,7 +3247,7 @@
       grad.addColorStop(0, "rgba(255,255,255,0.24)");
       grad.addColorStop(0.24, color);
       grad.addColorStop(1, "rgba(170,188,206,0.9)");
-      g.shadowBlur = 6 * glow;
+      g.shadowBlur = 6 * glow * FX_GLOW;
       g.shadowColor = "rgba(236,244,255,0.42)";
       roundRectPath(g, x, y, w, h, 7);
       g.fillStyle = grad;
@@ -3173,9 +3260,13 @@
       g.restore();
     }
 
-    function render(currentTime = 0) {
+    function render(currentTime = 0, audioNow = null) {
       const { width, height, judgeY } = gameState;
       g.clearRect(0, 0, width, height);
+
+      const wallTime = audioNow ?? (ctx ? ctx.currentTime : currentTime + startTime);
+      const timeToStart = countdownActive ? countdownEnd - wallTime : -1;
+      const preStart = running && countdownActive && timeToStart > -0.05;
 
       g.fillStyle = "rgba(11, 16, 24, 0.5)";
       g.fillRect(0, 0, width, height);
@@ -3221,7 +3312,9 @@
       g.lineTo(width, height);
       g.stroke();
 
-      g.fillStyle = "rgba(144, 160, 176, 0.28)";
+      const breathe = 0.18 + 0.12 * Math.sin(wallTime * 2.6);
+      const judgeAlpha = Math.min(0.65, breathe + (preStart ? 0.24 : 0));
+      g.fillStyle = `rgba(144, 160, 176, ${judgeAlpha})`;
       g.fillRect(0, judgeY - 2, width, 4);
 
       if (currentTime < lastRenderTime) renderStartIndex = 0;
@@ -3268,6 +3361,22 @@
         }
       }
 
+      if (preStart) {
+        const remain = Math.max(0, timeToStart);
+        const count = Math.ceil(remain);
+        g.save();
+        g.fillStyle = "rgba(10, 14, 22, 0.38)";
+        g.fillRect(0, 0, width, height);
+        g.fillStyle = "rgba(240,244,255,0.92)";
+        g.font = "bold 46px 'Helvetica Neue', 'Arial'";
+        g.textAlign = "center";
+        g.fillText(count, width / 2, judgeY - 80);
+        g.font = "18px 'Helvetica Neue', 'Arial'";
+        g.fillStyle = "rgba(210,222,240,0.9)";
+        g.fillText(t("countdown_hint") || "准备按判定线", width / 2, judgeY - 40);
+        g.restore();
+      }
+
       // Particle sparkles.
       g.save();
       g.globalCompositeOperation = "lighter";
@@ -3301,27 +3410,27 @@
             g.beginPath();
             g.arc(px, py, rr * 0.95, 0, Math.PI * 2);
             g.fill();
-          } else {
-            const grad = g.createRadialGradient(px, py, 0, px, py, rr * 2.4);
-            if (gold) {
-              grad.addColorStop(0, `rgba(255, 247, 228, ${0.92 * alpha})`);
-              grad.addColorStop(0.32, `rgba(255, 226, 166, ${0.56 * alpha})`);
-              grad.addColorStop(1, `rgba(255, 210, 120, 0)`);
             } else {
-              grad.addColorStop(0, `rgba(255, 255, 255, ${0.95 * alpha})`);
-              grad.addColorStop(0.34, `rgba(228, 242, 255, ${0.56 * alpha})`);
-              grad.addColorStop(1, `rgba(196, 220, 242, 0)`);
-            }
-            g.shadowBlur = 10;
-            g.shadowColor = gold
-              ? `rgba(255, 218, 148, ${0.45 * alpha})`
-              : `rgba(230, 242, 255, ${0.45 * alpha})`;
-            g.fillStyle = grad;
-            g.beginPath();
-            g.arc(px, py, rr * 2.4, 0, Math.PI * 2);
-            g.fill();
-            g.fillStyle = gold
-              ? `rgba(255, 244, 220, ${0.72 * alpha})`
+              const grad = g.createRadialGradient(px, py, 0, px, py, rr * 2.4);
+              if (gold) {
+                grad.addColorStop(0, `rgba(255, 247, 228, ${0.92 * alpha})`);
+                grad.addColorStop(0.32, `rgba(255, 226, 166, ${0.56 * alpha})`);
+                grad.addColorStop(1, `rgba(255, 210, 120, 0)`);
+              } else {
+                grad.addColorStop(0, `rgba(255, 255, 255, ${0.95 * alpha})`);
+                grad.addColorStop(0.34, `rgba(228, 242, 255, ${0.56 * alpha})`);
+                grad.addColorStop(1, `rgba(196, 220, 242, 0)`);
+              }
+              g.shadowBlur = 10 * FX_PARTICLE_GLOW;
+              g.shadowColor = gold
+                ? `rgba(255, 218, 148, ${0.45 * alpha * FX_PARTICLE_GLOW})`
+                : `rgba(230, 242, 255, ${0.45 * alpha * FX_PARTICLE_GLOW})`;
+              g.fillStyle = grad;
+              g.beginPath();
+              g.arc(px, py, rr * 2.4, 0, Math.PI * 2);
+              g.fill();
+              g.fillStyle = gold
+                ? `rgba(255, 244, 220, ${0.72 * alpha})`
               : `rgba(252, 255, 255, ${0.74 * alpha})`;
             g.beginPath();
             g.arc(px, py, rr * 0.78, 0, Math.PI * 2);
@@ -3381,7 +3490,9 @@
     function loop() {
       if (!running) return;
       lastFrameTs = performance.now();
-      const t = ctx.currentTime - startTime;
+      const audioNow = ctx ? ctx.currentTime : 0;
+      if (countdownActive && audioNow >= countdownEnd - 0.01) countdownActive = false;
+      const t = audioNow - startTime;
       for (let lane = 0; lane < laneCount; lane += 1) {
         const ah = activeHolds[lane];
         if (!ah) continue;
@@ -3392,7 +3503,7 @@
         }
       }
       updateMisses(t);
-      render(t);
+      render(t, audioNow);
       rafId = requestAnimationFrame(loop);
     }
 
@@ -3922,6 +4033,7 @@
       resetScore();
       for (const n of chart) n.hit = false;
 
+      const preRoll = 3.0;
       sourceNode = audioCtx.createBufferSource();
       sourceNode.buffer = audioBuffer;
       sourceNode.connect(audioCtx.destination);
@@ -3934,7 +4046,9 @@
       };
 
       pauseOffset = 0;
-      startTime = audioCtx.currentTime + 0.08;
+      startTime = audioCtx.currentTime + preRoll + 0.08;
+      countdownEnd = startTime;
+      countdownActive = true;
       sourceNode.start(startTime);
       if (currentSource === "midi" && midiOnsets) {
         scheduleMidiSynth(midiPlaybackOnsets && midiPlaybackOnsets.length ? midiPlaybackOnsets : midiOnsets, estimatedBpm);
@@ -4104,6 +4218,12 @@
       ui.sfxText.textContent = `${Math.round(sfxVolume * 100)}%`;
     });
 
+    ui.fxQuality.addEventListener("change", () => {
+      fxQuality = ui.fxQuality.value;
+      applyFxQuality(fxQuality);
+      ui.fxQualityText.textContent = t(`fx_${fxQuality}`);
+    });
+
     ui.difficulty.addEventListener("change", () => {
       difficulty = ui.difficulty.value;
       updateDifficulty();
@@ -4201,6 +4321,7 @@
     buildKeyMap();
     updateDifficulty();
     ui.sfxText.textContent = `${Math.round(sfxVolume * 100)}%`;
+    ui.fxQualityText.textContent = t("fx_high");
     applyI18n();
     ui.status.textContent = t("status_idle");
     ui.recordTimer.textContent = "60s";
