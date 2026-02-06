@@ -2572,6 +2572,18 @@
       return dedupeAndSortNotes(notes);
     }
 
+    function snapNotesToGrid(notes, bpm, phaseOffset = 0) {
+      if (!notes.length) return notes;
+      const beat = 60 / Math.max(70, bpm || 120);
+      const grid = beat / 4;
+      const window = grid * 0.18;
+      for (const n of notes) {
+        const q = Math.round((n.t - phaseOffset) / grid) * grid + phaseOffset;
+        if (Math.abs(n.t - q) <= window) n.t = q;
+      }
+      return dedupeAndSortNotes(notes);
+    }
+
     function injectMetalcorePatterns(notes, sections, anchors, bpm, barSec, rng = Math.random) {
       if (!sections || !sections.length) return notes;
       const difficultyGain = { easy: 0.45, normal: 0.72, hard: 0.96, expert: 1.15 }[difficulty] || 0.72;
@@ -2587,13 +2599,19 @@
         Math.abs(n.t - t) <= 0.042 && (lane === null || n.lane === lane)
       );
       const laneSeq = centerOutLanes(laneCount);
+      const barAnchors = new Map();
+      for (const a of anchors || []) {
+        const bar = Math.floor(a.t / barSec);
+        barAnchors.set(bar, (barAnchors.get(bar) || 0) + 1);
+      }
       for (const sec of sections) {
         const bank = patterns[sec.type] || patterns.verse;
-        const pat = bank[Math.floor(rng() * bank.length)];
         const barStart = sec.startBar;
         const barEnd = sec.endBar;
         for (let bar = barStart; bar < barEnd; bar += 1) {
-          if (rng() > 0.72 * difficultyGain) continue;
+          const anchorWeight = Math.min(1.2, 0.4 + (barAnchors.get(bar) || 0) * 0.25);
+          if (rng() > 0.6 * difficultyGain * anchorWeight) continue;
+          const pat = bank[bar % bank.length];
           const base = bar * barSec;
           for (let pi = 0; pi < pat.length; pi += 1) {
             let t = base + pat[pi] * barSec;
@@ -2612,7 +2630,7 @@
               color: toneColor(rng),
               importance: sec.type === "breakdown" ? 1.8 : 1.35
             });
-            if ((difficulty === "hard" || difficulty === "expert") && sec.type === "breakdown" && rng() < 0.18) {
+            if ((difficulty === "hard" || difficulty === "expert") && sec.type === "breakdown" && rng() < 0.14) {
               const lane2 = (lane + 2) % laneCount;
               if (!hasNearby(t, lane2)) {
                 notes.push({
@@ -2725,7 +2743,8 @@
       for (let i = 0; i < quantized.length; i += 1) {
         const n = quantized[i];
         const strong = n.v > maxV * 0.45;
-        const makeChord = strong && (rng() < 0.2);
+        const beatIndex = Math.round((n.t - phaseOffset) / beat);
+        const makeChord = strong && (beatIndex % 4 === 0);
         if (makeChord) {
           lane = (lane + 1) % laneCount;
           const other = (lane + 2) % laneCount;
@@ -2741,7 +2760,8 @@
       if (!postprocess) return base;
       const barSec = (60 / Math.max(60, bpm || 120)) * barBeats;
       const riffMap = buildRiffTemplateMap(onsets, barSec);
-      return enforceDifficultyComplexity(applyRiffReuse(base, riffMap, barSec), bpm, barSec, rng);
+      const snapped = snapNotesToGrid(applyRiffReuse(base, riffMap, barSec), bpm, phaseOffset);
+      return enforceDifficultyComplexity(snapped, bpm, barSec, rng);
     }
 
     function injectHolds(notes, bpm, rng = Math.random) {
@@ -3072,7 +3092,7 @@
       out = injectMetalcorePatterns(out, sectionGrammar, anchors, bpm, barSec, rng);
       const riffSource = (modes.guitar && modes.guitar.length) ? modes.guitar : (modes.mix || []);
       const riffMap = buildRiffTemplateMap(riffSource, barSec);
-      out = applyRiffReuse(out, riffMap, barSec);
+      out = snapNotesToGrid(applyRiffReuse(out, riffMap, barSec), bpm, phaseOffset);
       out = enforceDifficultyComplexity(out, bpm, barSec, rng);
       return out.sort((a, b) => a.t - b.t);
     }
