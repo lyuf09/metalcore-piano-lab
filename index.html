@@ -2365,6 +2365,19 @@
       return { chart: bestChart, score: bestScore };
     }
 
+    function computeChartNoteLimit(durationSec) {
+      const baseByDifficulty = {
+        easy: 300,
+        normal: 500,
+        hard: 800,
+        expert: 1000
+      };
+      const base = baseByDifficulty[difficulty] || 500;
+      const safeDuration = Math.max(20, Number(durationSec) || 240);
+      const scaled = Math.round(base * (safeDuration / 240));
+      return Math.max(24, scaled);
+    }
+
     function buildChartFromOnsets(onsets, bpm, density, phaseOffset = 0, lock = 0.65, rng = Math.random) {
       if (!onsets.length) return [];
       const beat = 60 / bpm;
@@ -3277,9 +3290,10 @@
           Number(ui.density.value).toFixed(2),
           midiMode
         ].join("|"));
+        const noteLimit = computeChartNoteLimit(midiDuration || (audioBuffer ? audioBuffer.duration : 240));
         const midiBest = generateBestChart(
           (rng) => buildChartFromMidi(baseOnsets, estimatedBpm, Number(ui.density.value), rng),
-          { attempts: 10, baseSeed: midiSeed, bpm: estimatedBpm, maxNotes: 800 }
+          { attempts: 10, baseSeed: midiSeed, bpm: estimatedBpm, maxNotes: noteLimit }
         );
         chart = midiBest.chart;
         for (const n of chart) n.hit = false;
@@ -3348,6 +3362,7 @@
         ui.timeSigText.textContent = parsed.label;
       }
       const barSec = (60 / estimatedBpm) * barBeats;
+      const noteLimit = computeChartNoteLimit(audioBuffer ? audioBuffer.duration : 240);
 
       if (focusMode === "auto") {
         const autoModes = {
@@ -3368,7 +3383,7 @@
         ].join("|"));
         const autoBest = generateBestChart(
           (rng) => buildChartAuto(autoModes, estimatedBpm, Number(ui.density.value), beatOffset, beatLock, barSec, rng),
-          { attempts: 12, baseSeed: autoSeed, bpm: estimatedBpm, maxNotes: 800 }
+          { attempts: 12, baseSeed: autoSeed, bpm: estimatedBpm, maxNotes: noteLimit }
         );
         chart = autoBest.chart;
       } else {
@@ -3385,7 +3400,7 @@
         ].join("|"));
         const modeBest = generateBestChart(
           (rng) => buildChartFromOnsets(chosen, estimatedBpm, Number(ui.density.value), beatOffset, beatLock, rng),
-          { attempts: 10, baseSeed: modeSeed, bpm: estimatedBpm, maxNotes: 800 }
+          { attempts: 10, baseSeed: modeSeed, bpm: estimatedBpm, maxNotes: noteLimit }
         );
         chart = modeBest.chart;
       }
@@ -3443,13 +3458,15 @@
           Number(ui.density.value).toFixed(2),
           midiMode
         ].join("|"));
+        const noteLimit = computeChartNoteLimit(midiDuration || (audioBuffer ? audioBuffer.duration : 240));
         const midiBest = generateBestChart(
           (rng) => buildChartFromMidi(baseOnsets, estimatedBpm, Number(ui.density.value), rng),
-          { attempts: 10, baseSeed: midiSeed, bpm: estimatedBpm, maxNotes: 800 }
+          { attempts: 10, baseSeed: midiSeed, bpm: estimatedBpm, maxNotes: noteLimit }
         );
         chart = midiBest.chart;
       } else {
         if (!onsetsByMode) return;
+        const noteLimit = computeChartNoteLimit(audioBuffer ? audioBuffer.duration : 240);
         if (focusMode === "auto") {
           const autoModes = {
             drum: onsetsByMode.drum,
@@ -3469,7 +3486,7 @@
           ].join("|"));
           const autoBest = generateBestChart(
             (rng) => buildChartAuto(autoModes, estimatedBpm, Number(ui.density.value), beatOffset, beatLock, barSec, rng),
-            { attempts: 12, baseSeed: autoSeed, bpm: estimatedBpm, maxNotes: 800 }
+            { attempts: 12, baseSeed: autoSeed, bpm: estimatedBpm, maxNotes: noteLimit }
           );
           chart = autoBest.chart;
         } else {
@@ -3486,7 +3503,7 @@
           ].join("|"));
           const modeBest = generateBestChart(
             (rng) => buildChartFromOnsets(chosen, estimatedBpm, Number(ui.density.value), beatOffset, beatLock, rng),
-            { attempts: 10, baseSeed: modeSeed, bpm: estimatedBpm, maxNotes: 800 }
+            { attempts: 10, baseSeed: modeSeed, bpm: estimatedBpm, maxNotes: noteLimit }
           );
           chart = modeBest.chart;
         }
