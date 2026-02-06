@@ -2318,6 +2318,9 @@
           g.fillRect(x + 2, y0, w - 4, Math.max(12, y1 - y0));
           g.fillStyle = color;
           g.fillRect(x, yHead - 10, w, 16);
+          // tail cap
+          g.fillStyle = `rgba(150, 170, 190, 0.32)`;
+          g.fillRect(x + 4, yTail - 8, w - 8, 12);
         } else {
           const y = judgeY - (dt / SCROLL_TIME) * (height - 40);
           g.fillStyle = color;
@@ -2350,14 +2353,39 @@
           nextMissIndex += 1;
           continue;
         }
-        if (currentTime - (n.t + offsetSec) > hitWindow) {
-          n.hit = true;
-          combo = 0;
-          ui.combo.textContent = "0";
-          nextMissIndex += 1;
-          continue;
+        if (n.type === "hold") {
+          const endTime = n.end + offsetSec;
+          const startTimeLocal = n.t + offsetSec;
+          if (currentTime - endTime > hitWindow) {
+            // Missed tail.
+            n.hit = true;
+            activeHolds[n.lane] = null;
+            combo = 0;
+            ui.combo.textContent = "0";
+            nextMissIndex += 1;
+            continue;
+          }
+          // Auto-complete if still holding past end.
+          const ah = activeHolds[n.lane];
+          if (ah && ah.note === n && currentTime >= endTime) {
+            finishHoldSuccess(n, true);
+            nextMissIndex += 1;
+            continue;
+          }
+          if (currentTime < startTimeLocal - hitWindow) break;
+          // not miss yet, wait.
+          break;
+        } else {
+          if (currentTime - (n.t + offsetSec) > hitWindow) {
+            n.hit = true;
+            combo = 0;
+            ui.combo.textContent = "0";
+            nextMissIndex += 1;
+            continue;
+          }
+          if (currentTime < n.t + offsetSec - hitWindow) break;
+          break;
         }
-        break;
       }
     }
 
@@ -2368,6 +2396,18 @@
       updateMisses(t);
       render(t);
       rafId = requestAnimationFrame(loop);
+    }
+
+    function finishHoldSuccess(note, silent = false) {
+      note.hit = true;
+      activeHolds[note.lane] = null;
+      if (silent) return;
+      combo += 1;
+      ui.combo.textContent = String(combo);
+      const gain = 160;
+      score += gain + combo * 2;
+      ui.score.textContent = String(score);
+      playHitSound("good");
     }
 
     function hitLane(lane) {
@@ -2393,31 +2433,43 @@
 
       if (bestIndex >= 0 && bestDelta <= hitWindow) {
         const note = chart[bestIndex];
-        note.hit = true;
-        const perfect = bestDelta <= perfectWindow;
-        const gain = perfect ? 300 : 180;
-        score += gain + combo * 2;
-        ui.score.textContent = String(score);
-        laneFlash[lane] = t;
-        playHitSound(perfect ? "perfect" : "good");
-        combo += 1;
-        ui.combo.textContent = String(combo);
-        const laneWidth = gameState.width / laneCount;
-        const baseX = lane * laneWidth + laneWidth / 2;
-        const baseY = gameState.judgeY - 6;
-        const count = perfect ? 14 : 10;
-        for (let i = 0; i < count; i += 1) {
-          const angle = Math.random() * Math.PI * 2;
-          const speed = (Math.random() * 70 + 50) * (perfect ? 1.1 : 1.0);
-          particles.push({
-            x: baseX + (Math.random() * 16 - 8),
-            y: baseY + (Math.random() * 6 - 3),
-            vx: Math.cos(angle) * speed,
-            vy: Math.sin(angle) * speed - 40,
-            r: Math.random() * 1.8 + 0.8,
-            t,
-            life: 0.35 + Math.random() * 0.15
-          });
+        if (note.type === "hold") {
+          // start hold
+          activeHolds[lane] = { note, start: t };
+          // award head only (once)
+          const perfect = bestDelta <= perfectWindow;
+          const gain = perfect ? 280 : 180;
+          score += gain + combo * 2;
+          ui.score.textContent = String(score);
+          combo += 1;
+          ui.combo.textContent = String(combo);
+        } else {
+          note.hit = true;
+          const perfect = bestDelta <= perfectWindow;
+          const gain = perfect ? 300 : 180;
+          score += gain + combo * 2;
+          ui.score.textContent = String(score);
+          laneFlash[lane] = t;
+          playHitSound(perfect ? "perfect" : "good");
+          combo += 1;
+          ui.combo.textContent = String(combo);
+          const laneWidth = gameState.width / laneCount;
+          const baseX = lane * laneWidth + laneWidth / 2;
+          const baseY = gameState.judgeY - 6;
+          const count = perfect ? 14 : 10;
+          for (let i = 0; i < count; i += 1) {
+            const angle = Math.random() * Math.PI * 2;
+            const speed = (Math.random() * 70 + 50) * (perfect ? 1.1 : 1.0);
+            particles.push({
+              x: baseX + (Math.random() * 16 - 8),
+              y: baseY + (Math.random() * 6 - 3),
+              vx: Math.cos(angle) * speed,
+              vy: Math.sin(angle) * speed - 40,
+              r: Math.random() * 1.8 + 0.8,
+              t,
+              life: 0.35 + Math.random() * 0.15
+            });
+          }
         }
       } else {
         combo = 0;
@@ -2425,7 +2477,23 @@
       }
     }
 
-    function releaseLane(lane) {}
+    function releaseLane(lane) {
+      if (!running) return;
+      const ah = activeHolds[lane];
+      const t = ctx.currentTime - startTime;
+      if (!ah) return;
+      const endTime = ah.note.end + offsetSec;
+      if (t >= endTime - hitWindow) {
+        finishHoldSuccess(ah.note);
+        nextMissIndex = Math.min(nextMissIndex + 1, chart.length);
+      } else {
+        // early release -> miss
+        ah.note.hit = true;
+        activeHolds[lane] = null;
+        combo = 0;
+        ui.combo.textContent = "0";
+      }
+    }
 
     async function loadAudio(file) {
       const audioCtx = ensureAudioContext();
