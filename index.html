@@ -1332,17 +1332,18 @@
         audioCtx.resume().catch(() => {});
       }
       const now = audioCtx.currentTime;
-      const base = note.note
-        ? 440 * Math.pow(2, (note.note - 69) / 12)
-        : (220 + lane * 55);
+      // Keep hold timbre close to hit SFX: bright, high, bell-like.
+      const laneOffsets = [0, 2, 5, 7, 9, 12, 14, 17];
+      const laneSemi = laneOffsets[lane % laneOffsets.length] || 0;
+      const base = (keyBaseFreq || 1760) * Math.pow(2, laneSemi / 12);
       const output = audioCtx.createGain();
       output.gain.setValueAtTime(0.0001, now);
-      output.gain.exponentialRampToValueAtTime(Math.max(0.002, 0.095 * sfxVolume), now + 0.06);
+      output.gain.exponentialRampToValueAtTime(Math.max(0.002, 0.14 * sfxVolume), now + 0.05);
 
       const dry = audioCtx.createGain();
       const wet = audioCtx.createGain();
-      dry.gain.value = 0.52;
-      wet.gain.value = 0.6;
+      dry.gain.value = 0.38;
+      wet.gain.value = 0.95;
       const convolver = audioCtx.createConvolver();
       if (!holdReverbBuffer) holdReverbBuffer = buildReverbImpulse(audioCtx, 1.05, 3.0);
       convolver.buffer = holdReverbBuffer;
@@ -1353,8 +1354,8 @@
       dry.connect(audioCtx.destination);
       wet.connect(audioCtx.destination);
 
-      const partials = [1, 2.08, 2.95];
-      const levels = [0.07, 0.04, 0.025];
+      const partials = [1, 2.1, 2.9, 4.1, 5.3];
+      const levels = [0.07, 0.05, 0.032, 0.022, 0.016];
       const oscs = [];
       const gains = [];
       for (let i = 0; i < partials.length; i += 1) {
@@ -1362,6 +1363,7 @@
         const g = audioCtx.createGain();
         osc.type = "sine";
         osc.frequency.setValueAtTime(base * partials[i], now);
+        osc.detune.setValueAtTime((Math.random() * 4 - 2), now);
         g.gain.setValueAtTime(levels[i], now);
         osc.connect(g);
         g.connect(output);
@@ -1373,8 +1375,8 @@
       const lfo = audioCtx.createOscillator();
       const lfoGain = audioCtx.createGain();
       lfo.type = "sine";
-      lfo.frequency.setValueAtTime(5.1, now);
-      lfoGain.gain.setValueAtTime(0.014 * Math.max(0.6, sfxVolume), now);
+      lfo.frequency.setValueAtTime(6.2, now);
+      lfoGain.gain.setValueAtTime(0.018 * Math.max(0.6, sfxVolume), now);
       lfo.connect(lfoGain);
       lfoGain.connect(output.gain);
       lfo.start(now);
@@ -1389,9 +1391,9 @@
       try {
         s.output.gain.cancelScheduledValues(now);
         s.output.gain.setValueAtTime(Math.max(0.0001, s.output.gain.value || 0.02), now);
-        s.output.gain.exponentialRampToValueAtTime(0.0001, now + 0.09);
-        for (const osc of s.oscs || []) osc.stop(now + 0.1);
-        if (s.lfo) s.lfo.stop(now + 0.1);
+        s.output.gain.exponentialRampToValueAtTime(0.0001, now + 0.12);
+        for (const osc of s.oscs || []) osc.stop(now + 0.14);
+        if (s.lfo) s.lfo.stop(now + 0.14);
       } catch {}
       holdEntry.sustain = null;
     }
