@@ -665,6 +665,7 @@
     let activeHolds = [];
     const pressedKeys = new Set();
     let midiOnsets = null;
+    let midiPlaybackOnsets = null;
     let midiBpm = null;
     let midiTimeSig = null;
     let midiDuration = 0;
@@ -1036,28 +1037,6 @@
       return buffer;
     }
 
-    function reduceOnsetsForSynth(onsets, maxNotes = 500) {
-      if (!onsets || onsets.length <= maxNotes) return onsets;
-      const sorted = onsets.slice().sort((a, b) => a.t - b.t);
-      const groupWindow = 0.03;
-      const reduced = [];
-      let i = 0;
-      while (i < sorted.length) {
-        const t0 = sorted[i].t;
-        let best = sorted[i];
-        while (i < sorted.length && sorted[i].t - t0 <= groupWindow) {
-          const curV = sorted[i].v ?? sorted[i].vel ?? 0;
-          const bestV = best.v ?? best.vel ?? 0;
-          if (curV > bestV) best = sorted[i];
-          i += 1;
-        }
-        reduced.push(best);
-      }
-      if (reduced.length <= maxNotes) return reduced;
-      const stride = Math.ceil(reduced.length / maxNotes);
-      return reduced.filter((_, idx) => idx % stride === 0);
-    }
-
     function scheduleMidiSynth(onsets, bpm) {
       if (!onsets || !onsets.length) return;
       const audioCtx = ensureAudioContext();
@@ -1084,13 +1063,27 @@
       stopMidiSynth();
       const now = audioCtx.currentTime;
       const offset = now - startTime;
-      const reduced = reduceOnsetsForSynth(onsets, 520);
+      const sorted = onsets.slice().sort((a, b) => a.t - b.t);
+      const nextByCh = new Map();
+      const gaps = new Array(sorted.length).fill(0.12);
+      for (let i = sorted.length - 1; i >= 0; i -= 1) {
+        const ch = sorted[i].ch ?? 0;
+        const next = nextByCh.get(ch);
+        if (next) gaps[i] = Math.max(0.02, next.t - sorted[i].t);
+        nextByCh.set(ch, sorted[i]);
+      }
       const canPan = typeof audioCtx.createStereoPanner === "function";
-      for (const o of reduced) {
+      for (let i = 0; i < sorted.length; i += 1) {
+        const o = sorted[i];
         const freq = 440 * Math.pow(2, (o.note - 69) / 12);
         const startAt = Math.max(audioCtx.currentTime + 0.01, now + o.t - offset);
         const vel = Math.max(0.25, Math.min(1, o.v ?? 0.6));
-        const dur = o.ch === 9 ? 0.28 : 0.24;
+        const gap = gaps[i];
+        const dur = o.ch === 9
+          ? Math.min(0.1, gap * 0.55)
+          : (o.note < 48
+            ? Math.max(0.07, Math.min(0.24, gap * 0.9))
+            : Math.max(0.035, Math.min(0.16, gap * 0.72)));
         const baseAmp = 0.035 + vel * 0.09;
         const outGain = audioCtx.createGain();
         outGain.gain.setValueAtTime(0.0001, startAt);
@@ -1578,6 +1571,7 @@
       const tempos = [];
       const timesigs = [];
       let maxTick = 0;
+      const channelPrograms = new Array(16).fill(0);
 
       for (let t = 0; t < ntrks; t += 1) {
         if (readStr(4) !== "MTrk") throw new Error("Invalid MIDI track");
@@ -1621,8 +1615,17 @@
           const channel = status & 0x0f;
           const data1 = firstData !== null ? firstData : data.getUint8(idx++);
           const data2 = (type === 0xc0 || type === 0xd0) ? null : data.getUint8(idx++);
+          if (type === 0xc0) {
+            channelPrograms[channel] = data1;
+          }
           if (type === 0x90 && data2 !== null && data2 > 0) {
-            noteOns.push({ tick, note: data1, vel: data2, ch: channel });
+            noteOns.push({
+              tick,
+              note: data1,
+              vel: data2,
+              ch: channel,
+              prog: channelPrograms[channel] ?? 0
+            });
           }
         }
       }
@@ -1657,7 +1660,8 @@
         t: tickToSec(n.tick),
         v: n.vel / 127,
         note: n.note,
-        ch: n.ch
+        ch: n.ch,
+        prog: n.prog ?? 0
       }));
 
       const bpm = Math.round(60 * 1e6 / tempos[0].mpqn);
@@ -1751,6 +1755,106 @@
         return pick(set);
       }
       return onsets;
+    }
+
+    function classifyProgram(prog) {
+      if (prog >= 0 && prog <= 7) return "piano";
+      if (prog >= 24 && prog <= 31) return "guitar";
+      if (prog >= 32 && prog <= 39) return "bass";
+      if (prog >= 80 && prog <= 87) return "lead";
+      return "other";
+    }
+
+    function pickDominantProgram(progCounts) {
+      let best = 0;
+      let bestCount = -1;
+      for (const [prog, count] of progCounts.entries()) {
+        if (count > bestCount) {
+          best = prog;
+          bestCount = count;
+        }
+      }
+      return best;
+    }
+
+    function selectMidiPlaybackOnsets(onsets, durationSec) {
+      if (!onsets || !onsets.length) return [];
+      const byChannel = new Map();
+      for (const o of onsets) {
+        const ch = o.ch ?? 0;
+        if (ch === 9) continue;
+        let info = byChannel.get(ch);
+        if (!info) {
+          info = {
+            ch,
+            notes: [],
+            count: 0,
+            sumPitch: 0,
+            sumVel: 0,
+            minPitch: 128,
+            maxPitch: 0,
+            progCounts: new Map()
+          };
+          byChannel.set(ch, info);
+        }
+        info.notes.push(o);
+        info.count += 1;
+        info.sumPitch += o.note;
+        info.sumVel += o.v ?? 0.6;
+        if (o.note < info.minPitch) info.minPitch = o.note;
+        if (o.note > info.maxPitch) info.maxPitch = o.note;
+        const prog = o.prog ?? 0;
+        info.progCounts.set(prog, (info.progCounts.get(prog) || 0) + 1);
+      }
+
+      const channels = Array.from(byChannel.values()).map((info) => {
+        const avgPitch = info.sumPitch / info.count;
+        const avgVel = info.sumVel / info.count;
+        const range = info.maxPitch - info.minPitch;
+        const domProg = pickDominantProgram(info.progCounts);
+        const type = classifyProgram(domProg);
+        return { ...info, avgPitch, avgVel, range, domProg, type };
+      });
+      if (!channels.length) return [];
+
+      let bass = channels.filter((c) => c.type === "bass");
+      let bassCh = null;
+      if (bass.length) {
+        bass.sort((a, b) => b.count - a.count);
+        bassCh = bass[0].ch;
+      } else {
+        const sorted = channels.slice().sort((a, b) => a.avgPitch - b.avgPitch);
+        bassCh = sorted[0].ch;
+      }
+
+      const leadCandidates = channels.filter((c) => c.type === "lead");
+      let melodyCh = null;
+      if (leadCandidates.length) {
+        leadCandidates.sort((a, b) => b.count - a.count);
+        melodyCh = leadCandidates[0].ch;
+      } else {
+        const melodyCandidates = channels
+          .filter((c) => c.ch !== bassCh)
+          .sort((a, b) => {
+            const sa = a.avgPitch * 0.8 + a.count * 0.2;
+            const sb = b.avgPitch * 0.8 + b.count * 0.2;
+            return sb - sa;
+          });
+        melodyCh = melodyCandidates[0]?.ch ?? bassCh;
+      }
+
+      let instrCandidates = channels.filter((c) => c.type === "piano" || c.type === "guitar");
+      instrCandidates = instrCandidates.filter((c) => c.ch !== melodyCh && c.ch !== bassCh);
+      instrCandidates.sort((a, b) => b.count - a.count);
+      let instrCh = instrCandidates[0]?.ch ?? null;
+
+      const selected = new Set([melodyCh, bassCh, instrCh].filter((v) => v !== null && v !== undefined));
+      const picked = [];
+      for (const o of onsets) {
+        const ch = o.ch ?? 0;
+        if (selected.has(ch)) picked.push(o);
+      }
+      return picked.sort((a, b) => a.t - b.t);
     }
 
     function estimateBpmFromOnsets(onsets) {
@@ -2355,11 +2459,14 @@
       await new Promise((r) => setTimeout(r, 30));
       if (currentSource === "midi" && midiOnsets) {
         estimatedBpm = midiBpm || 120;
+        let playbackSource = midiOnsets;
         baseOnsets = filterMidiOnsets(midiOnsets, midiMode);
         if (estimatedBpm < 100) {
           estimatedBpm *= 2;
           baseOnsets = baseOnsets.map((o) => ({ ...o, t: o.t / 2 }));
+          playbackSource = playbackSource.map((o) => ({ ...o, t: o.t / 2 }));
         }
+        midiPlaybackOnsets = selectMidiPlaybackOnsets(playbackSource, midiDuration);
         if (midiTimeSig && (["4/4", "3/4", "5/4", "7/8", "6/8", "9/8", "12/8"].includes(midiTimeSig))) {
           timeSig = midiTimeSig;
         }
@@ -2538,7 +2645,7 @@
       startTime = audioCtx.currentTime + 0.08;
       sourceNode.start(startTime);
       if (currentSource === "midi" && midiOnsets) {
-        scheduleMidiSynth(midiOnsets, estimatedBpm);
+        scheduleMidiSynth(midiPlaybackOnsets && midiPlaybackOnsets.length ? midiPlaybackOnsets : midiOnsets, estimatedBpm);
       }
       running = true;
       paused = false;
@@ -2581,7 +2688,7 @@
         startTime = audioCtx.currentTime - pauseOffset;
         sourceNode.start(0, pauseOffset);
         if (currentSource === "midi" && midiOnsets) {
-          scheduleMidiSynth(midiOnsets, estimatedBpm);
+          scheduleMidiSynth(midiPlaybackOnsets && midiPlaybackOnsets.length ? midiPlaybackOnsets : midiOnsets, estimatedBpm);
         }
         running = true;
         paused = false;
@@ -2604,6 +2711,7 @@
       stopGame();
       resetScore();
       onsetsByMode = null;
+      midiPlaybackOnsets = null;
 
       try {
         audioBuffer = await loadAudio(file);
@@ -2627,6 +2735,7 @@
         const buf = await file.arrayBuffer();
         const parsed = parseMidi(buf);
         midiOnsets = parsed.onsets;
+        midiPlaybackOnsets = null;
         midiBpm = parsed.bpm;
         midiTimeSig = parsed.timeSig;
         midiDuration = parsed.duration;
