@@ -1080,11 +1080,11 @@
       ui.difficultyText.textContent = preset.label;
     }
 
-    function toneColor() {
-      const base = tonePalette[Math.floor(Math.random() * tonePalette.length)];
-      const hue = base.hue + (Math.random() * 10 - 5);
-      const sat = Math.min(32, Math.max(10, base.sat + (Math.random() * 10 - 5)));
-      const light = Math.min(88, Math.max(52, base.light + (Math.random() * 12 - 6)));
+    function toneColor(rng = Math.random) {
+      const base = tonePalette[Math.floor(rng() * tonePalette.length)];
+      const hue = base.hue + (rng() * 10 - 5);
+      const sat = Math.min(32, Math.max(10, base.sat + (rng() * 10 - 5)));
+      const light = Math.min(88, Math.max(52, base.light + (rng() * 12 - 6)));
       return `hsl(${hue.toFixed(1)}, ${sat.toFixed(1)}%, ${light.toFixed(1)}%)`;
     }
 
@@ -1912,14 +1912,14 @@
       return { onsets, bpm, timeSig, duration };
     }
 
-    function buildChartFromMidi(onsets, bpm, density) {
+    function buildChartFromMidi(onsets, bpm, density, rng = Math.random) {
       if (!onsets.length) return [];
       const sorted = onsets.slice().sort((a, b) => a.t - b.t);
       const notes = [];
       const timeColor = new Map();
       const colorForTime = (t) => {
         const key = t.toFixed(3);
-        if (!timeColor.has(key)) timeColor.set(key, toneColor());
+        if (!timeColor.has(key)) timeColor.set(key, toneColor(rng));
         return timeColor.get(key);
       };
       let laneCursor = 0;
@@ -1944,7 +1944,7 @@
         }
         laneCursor += 1;
       }
-      return injectHolds(notes.sort((a, b) => a.t - b.t), bpm);
+      return injectHolds(notes.sort((a, b) => a.t - b.t), bpm, rng);
     }
 
     function filterMidiOnsets(onsets, mode) {
@@ -2227,7 +2227,145 @@
       return best;
     }
 
-    function buildChartFromOnsets(onsets, bpm, density, phaseOffset = 0, lock = 0.65) {
+    function hashString(input) {
+      let h = 2166136261 >>> 0;
+      for (let i = 0; i < input.length; i += 1) {
+        h ^= input.charCodeAt(i);
+        h = Math.imul(h, 16777619);
+      }
+      return h >>> 0;
+    }
+
+    function makeSeededRng(seed) {
+      let t = seed >>> 0;
+      return () => {
+        t += 0x6d2b79f5;
+        let x = t;
+        x = Math.imul(x ^ (x >>> 15), x | 1);
+        x ^= x + Math.imul(x ^ (x >>> 7), x | 61);
+        return ((x ^ (x >>> 14)) >>> 0) / 4294967296;
+      };
+    }
+
+    function evaluateChartQuality(notes, bpm) {
+      if (!notes || !notes.length) return -1e9;
+      const sorted = notes.slice().sort((a, b) => a.t - b.t);
+      const beat = 60 / Math.max(60, bpm || 120);
+      const holdCount = sorted.filter((n) => n.type === "hold").length;
+      const holdRatio = holdCount / Math.max(1, sorted.length);
+      const targetHoldRatio = 0.15;
+      const maxNpsByDifficulty = { easy: 3.2, normal: 5.0, hard: 7.0, expert: 8.8 };
+      const targetMaxNps = maxNpsByDifficulty[difficulty] || 5.0;
+      let score = 1000;
+
+      // Keep hold usage near target ratio.
+      score -= Math.abs(holdRatio - targetHoldRatio) * 420;
+
+      // Penalize impossible hold overlaps and over-complex hold internals.
+      const holds = sorted.filter((n) => n.type === "hold");
+      for (let i = 0; i < holds.length; i += 1) {
+        const a = holds[i];
+        const aEnd = a.end || (a.t + beat * 0.8);
+        for (let j = i + 1; j < holds.length; j += 1) {
+          const b = holds[j];
+          const bEnd = b.end || (b.t + beat * 0.8);
+          const syncStart = Math.abs(a.t - b.t) <= beat * 0.08;
+          const syncEnd = Math.abs(aEnd - bEnd) <= beat * 0.16;
+          const overlap = !(aEnd <= b.t + 0.03 || a.t >= bEnd - 0.03);
+          if (overlap && !(syncStart && syncEnd)) score -= 38;
+        }
+      }
+      for (const h of holds) {
+        const hEnd = h.end || (h.t + beat * 0.8);
+        let tapInside = 0;
+        for (const n of sorted) {
+          if (n.type === "hold") continue;
+          if (n.t > h.t + 0.03 && n.t < hEnd - 0.03) tapInside += 1;
+        }
+        if (tapInside > 2) score -= (tapInside - 2) * 9;
+      }
+
+      // Lane balance.
+      const laneCounts = new Array(laneCount).fill(0);
+      for (const n of sorted) laneCounts[n.lane] += 1;
+      const avgLane = sorted.length / laneCount;
+      let laneVar = 0;
+      for (const c of laneCounts) {
+        const d = c - avgLane;
+        laneVar += d * d;
+      }
+      laneVar /= Math.max(1, laneCount);
+      score -= Math.sqrt(laneVar) * 0.65;
+
+      // Local NPS strain.
+      let maxLoad = 0;
+      let j = 0;
+      let load = 0;
+      for (let i = 0; i < sorted.length; i += 1) {
+        const ni = sorted[i];
+        load += ni.type === "hold" ? 1.25 : 1;
+        while (ni.t - sorted[j].t > 1.0) {
+          load -= sorted[j].type === "hold" ? 1.25 : 1;
+          j += 1;
+        }
+        if (load > maxLoad) maxLoad = load;
+      }
+      if (maxLoad > targetMaxNps) {
+        const exceed = maxLoad - targetMaxNps;
+        score -= exceed * exceed * 24;
+      }
+
+      // Too many dead zones.
+      for (let i = 1; i < sorted.length; i += 1) {
+        const gap = sorted[i].t - sorted[i - 1].t;
+        if (gap > 2.2) score -= (gap - 2.2) * 10;
+      }
+
+      // Reward rhythmic consistency at bar-level.
+      const barSec = beat * barBeats;
+      if (barSec > 0.01) {
+        const barMap = new Map();
+        for (const n of sorted) {
+          const bar = Math.floor(n.t / barSec);
+          const pos = (n.t - bar * barSec) / barSec;
+          const bin = Math.max(0, Math.min(15, Math.round(pos * 15)));
+          if (!barMap.has(bar)) barMap.set(bar, new Set());
+          barMap.get(bar).add(bin);
+        }
+        const bars = Array.from(barMap.values());
+        for (let i = 1; i < bars.length; i += 1) {
+          const a = bars[i - 1];
+          const b = bars[i];
+          let overlap = 0;
+          for (const k of a) if (b.has(k)) overlap += 1;
+          score += overlap * 0.8;
+        }
+      }
+      return score;
+    }
+
+    function generateBestChart(buildOne, opts = {}) {
+      const attempts = Math.max(2, opts.attempts || 8);
+      const baseSeed = opts.baseSeed >>> 0;
+      const bpm = opts.bpm || 120;
+      const maxNotes = opts.maxNotes || 800;
+      let bestChart = [];
+      let bestScore = -1e9;
+      for (let i = 0; i < attempts; i += 1) {
+        const seed = (baseSeed + Math.imul(i + 1, 2654435761)) >>> 0;
+        const rng = makeSeededRng(seed);
+        let c = buildOne(rng) || [];
+        c = capNotes(c, maxNotes);
+        const s = evaluateChartQuality(c, bpm);
+        if (s > bestScore) {
+          bestScore = s;
+          bestChart = c;
+        }
+      }
+      return { chart: bestChart, score: bestScore };
+    }
+
+    function buildChartFromOnsets(onsets, bpm, density, phaseOffset = 0, lock = 0.65, rng = Math.random) {
       if (!onsets.length) return [];
       const beat = 60 / bpm;
       const grid = beat / 4;
@@ -2242,7 +2380,7 @@
         const t = dist <= grid * 0.45 ? (o.t * (1 - lock) + q * lock) : o.t;
         if (t - last < grid * 0.5) continue;
         const keepProb = Math.min(1, density * (0.55 + (o.v / maxV) * 0.9));
-        if (Math.random() > keepProb) continue;
+        if (rng() > keepProb) continue;
         quantized.push({ t, v: o.v });
         last = t;
       }
@@ -2251,13 +2389,13 @@
       const timeColor = new Map();
       const colorForTime = (t) => {
         const key = t.toFixed(3);
-        if (!timeColor.has(key)) timeColor.set(key, toneColor());
+        if (!timeColor.has(key)) timeColor.set(key, toneColor(rng));
         return timeColor.get(key);
       };
       for (let i = 0; i < quantized.length; i += 1) {
         const n = quantized[i];
         const strong = n.v > maxV * 0.45;
-        const makeChord = strong && i % 8 === 0;
+        const makeChord = strong && (rng() < 0.2);
         if (makeChord) {
           lane = (lane + 1) % laneCount;
           const other = (lane + 2) % laneCount;
@@ -2269,10 +2407,10 @@
         lane = (lane + 1 + (i % 2)) % laneCount;
         notes.push({ t: n.t, lane, type: "tap", color: colorForTime(n.t) });
       }
-      return injectHolds(notes.sort((a, b) => a.t - b.t), bpm);
+      return injectHolds(notes.sort((a, b) => a.t - b.t), bpm, rng);
     }
 
-    function injectHolds(notes, bpm) {
+    function injectHolds(notes, bpm, rng = Math.random) {
       if (!notes.length) return notes;
       const beat = 60 / bpm;
       const sorted = notes
@@ -2323,15 +2461,15 @@
       };
 
       const primaryOrder = candidates.slice().sort((a, b) => {
-        const sa = a.dur + Math.random() * beat * 0.35;
-        const sb = b.dur + Math.random() * beat * 0.35;
+        const sa = a.dur + rng() * beat * 0.35;
+        const sb = b.dur + rng() * beat * 0.35;
         return sb - sa;
       });
 
       for (const c of primaryOrder) {
         if (selected.length >= wantHoldCount) break;
         if (selected.some((s) => overlapsUnsynced(c, s))) continue;
-        if (Math.random() < 0.78 || selected.length === 0) selected.push(c);
+        if (rng() < 0.78 || selected.length === 0) selected.push(c);
       }
       if (selected.length < wantHoldCount) {
         for (const c of primaryOrder) {
@@ -2520,7 +2658,7 @@
       return sections;
     }
 
-    function buildChartAuto(modes, bpm, density, phaseOffset, lock, barSec) {
+    function buildChartAuto(modes, bpm, density, phaseOffset, lock, barSec, rng = Math.random) {
       const segments = chooseSegments(modes, barSec);
       const sectionEnergy = detectSections(modes.mix || [], barSec);
       const overallEnergy = (modes.mix || []).reduce((s, o) => s + o.v, 0) / Math.max(1, sectionEnergy.length);
@@ -2570,7 +2708,7 @@
         const scale = overallEnergy > 0 ? Math.min(1.25, Math.max(0.8, secEnergy / overallEnergy)) : 1;
         const segDensity = density * scale;
         const onsets = (modes[seg.mode] || []).filter((o) => o.t >= seg.start && o.t < seg.end);
-        const chunk = buildChartFromOnsets(onsets, bpm, segDensity, phaseOffset, lock);
+        const chunk = buildChartFromOnsets(onsets, bpm, segDensity, phaseOffset, lock, rng);
         // Align rhythm to section template when close.
         for (const n of chunk) {
           const bar = Math.floor(n.t / barSec);
@@ -3130,8 +3268,20 @@
           barBeats = parsed.beats;
           ui.timeSigText.textContent = parsed.label;
         }
-        const chartNotes = buildChartFromMidi(baseOnsets, estimatedBpm, Number(ui.density.value));
-        chart = capNotes(chartNotes, 800);
+        const midiSeed = hashString([
+          fileName,
+          "midi",
+          estimatedBpm,
+          laneCount,
+          difficulty,
+          Number(ui.density.value).toFixed(2),
+          midiMode
+        ].join("|"));
+        const midiBest = generateBestChart(
+          (rng) => buildChartFromMidi(baseOnsets, estimatedBpm, Number(ui.density.value), rng),
+          { attempts: 10, baseSeed: midiSeed, bpm: estimatedBpm, maxNotes: 800 }
+        );
+        chart = midiBest.chart;
         for (const n of chart) n.hit = false;
         ui.bpm.textContent = String(estimatedBpm);
         ui.notes.textContent = String(chart.length);
@@ -3206,10 +3356,38 @@
           piano: onsetsByMode.piano,
           vocal: onsetsByMode.vocal
         };
-        chart = capNotes(buildChartAuto(autoModes, estimatedBpm, Number(ui.density.value), beatOffset, beatLock, barSec), 800);
+        const autoSeed = hashString([
+          fileName,
+          "audio-auto",
+          estimatedBpm,
+          laneCount,
+          difficulty,
+          Number(ui.density.value).toFixed(2),
+          focusMode,
+          timeSig
+        ].join("|"));
+        const autoBest = generateBestChart(
+          (rng) => buildChartAuto(autoModes, estimatedBpm, Number(ui.density.value), beatOffset, beatLock, barSec, rng),
+          { attempts: 12, baseSeed: autoSeed, bpm: estimatedBpm, maxNotes: 800 }
+        );
+        chart = autoBest.chart;
       } else {
         const chosen = onsetsByMode[focusMode] || onsetsByMode.mix;
-        chart = capNotes(buildChartFromOnsets(chosen, estimatedBpm, Number(ui.density.value), beatOffset, beatLock), 800);
+        const modeSeed = hashString([
+          fileName,
+          "audio-mode",
+          estimatedBpm,
+          laneCount,
+          difficulty,
+          Number(ui.density.value).toFixed(2),
+          focusMode,
+          timeSig
+        ].join("|"));
+        const modeBest = generateBestChart(
+          (rng) => buildChartFromOnsets(chosen, estimatedBpm, Number(ui.density.value), beatOffset, beatLock, rng),
+          { attempts: 10, baseSeed: modeSeed, bpm: estimatedBpm, maxNotes: 800 }
+        );
+        chart = modeBest.chart;
       }
       for (const n of chart) n.hit = false;
 
@@ -3256,7 +3434,20 @@
       }
       const barSec = (60 / estimatedBpm) * barBeats;
       if (currentSource === "midi") {
-        chart = capNotes(buildChartFromMidi(baseOnsets, estimatedBpm, Number(ui.density.value)), 800);
+        const midiSeed = hashString([
+          fileName,
+          "midi-regen",
+          estimatedBpm,
+          laneCount,
+          difficulty,
+          Number(ui.density.value).toFixed(2),
+          midiMode
+        ].join("|"));
+        const midiBest = generateBestChart(
+          (rng) => buildChartFromMidi(baseOnsets, estimatedBpm, Number(ui.density.value), rng),
+          { attempts: 10, baseSeed: midiSeed, bpm: estimatedBpm, maxNotes: 800 }
+        );
+        chart = midiBest.chart;
       } else {
         if (!onsetsByMode) return;
         if (focusMode === "auto") {
@@ -3266,10 +3457,38 @@
             piano: onsetsByMode.piano,
             vocal: onsetsByMode.vocal
           };
-          chart = capNotes(buildChartAuto(autoModes, estimatedBpm, Number(ui.density.value), beatOffset, beatLock, barSec), 800);
+          const autoSeed = hashString([
+            fileName,
+            "audio-auto-regen",
+            estimatedBpm,
+            laneCount,
+            difficulty,
+            Number(ui.density.value).toFixed(2),
+            focusMode,
+            timeSig
+          ].join("|"));
+          const autoBest = generateBestChart(
+            (rng) => buildChartAuto(autoModes, estimatedBpm, Number(ui.density.value), beatOffset, beatLock, barSec, rng),
+            { attempts: 12, baseSeed: autoSeed, bpm: estimatedBpm, maxNotes: 800 }
+          );
+          chart = autoBest.chart;
         } else {
           const chosen = onsetsByMode[focusMode] || onsetsByMode.mix;
-          chart = capNotes(buildChartFromOnsets(chosen, estimatedBpm, Number(ui.density.value), beatOffset, beatLock), 800);
+          const modeSeed = hashString([
+            fileName,
+            "audio-mode-regen",
+            estimatedBpm,
+            laneCount,
+            difficulty,
+            Number(ui.density.value).toFixed(2),
+            focusMode,
+            timeSig
+          ].join("|"));
+          const modeBest = generateBestChart(
+            (rng) => buildChartFromOnsets(chosen, estimatedBpm, Number(ui.density.value), beatOffset, beatLock, rng),
+            { attempts: 10, baseSeed: modeSeed, bpm: estimatedBpm, maxNotes: 800 }
+          );
+          chart = modeBest.chart;
         }
       }
       for (const n of chart) n.hit = false;
