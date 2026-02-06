@@ -2414,6 +2414,42 @@
       return out;
     }
 
+    function resolveHoldTapConflicts(notes, bpm) {
+      if (!notes.length) return notes;
+      const beat = 60 / Math.max(70, bpm || 120);
+      const eps = Math.min(0.03, beat * 0.14);
+      const minHoldDur = Math.max(0.12, beat * 0.3);
+      const maxHoldDur = Math.max(minHoldDur + 0.04, beat * 3.5);
+      const sorted = dedupeAndSortNotes(notes).map((n) => ({ ...n }));
+      const holds = [];
+      for (const n of sorted) {
+        if (n.type !== "hold") continue;
+        const rawEnd = Number.isFinite(n.end) ? n.end : n.t + minHoldDur;
+        n.end = Math.min(n.t + maxHoldDur, Math.max(n.t + minHoldDur, rawEnd));
+        holds.push(n);
+      }
+      if (!holds.length) return sorted;
+      holds.sort((a, b) => a.t - b.t);
+      const cleaned = [];
+      for (const n of sorted) {
+        if (n.type === "hold") {
+          cleaned.push(n);
+          continue;
+        }
+        let insideHold = false;
+        for (let i = 0; i < holds.length; i += 1) {
+          const h = holds[i];
+          if (h.t > n.t - eps) break;
+          if (n.t > h.t + eps && n.t < h.end - eps) {
+            insideHold = true;
+            break;
+          }
+        }
+        if (!insideHold) cleaned.push(n);
+      }
+      return dedupeAndSortNotes(cleaned);
+    }
+
     function deriveDrumGuitarAnchors(drumOnsets, guitarOnsets, bpm) {
       if (!drumOnsets || !guitarOnsets || !drumOnsets.length || !guitarOnsets.length) return [];
       const beat = 60 / Math.max(70, bpm || 120);
@@ -2707,10 +2743,11 @@
         if (removeIdx < 0) break;
         compact.splice(removeIdx, 1);
       }
-      return dedupeAndSortNotes(compact).map((n) => {
+      const cleaned = dedupeAndSortNotes(compact).map((n) => {
         delete n.importance;
         return n;
       });
+      return resolveHoldTapConflicts(cleaned, bpm);
     }
 
     function buildChartFromOnsets(onsets, bpm, density, phaseOffset = 0, lock = 0.65, rng = Math.random, postprocess = true) {
@@ -2906,7 +2943,7 @@
           delete n.end;
         }
       }
-      return result.sort((a, b) => a.t - b.t);
+      return resolveHoldTapConflicts(result.sort((a, b) => a.t - b.t), bpm);
     }
 
     function chooseSegments(modes, barSec) {
