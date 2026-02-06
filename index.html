@@ -675,6 +675,7 @@
     let midiSynthFilter = null;
     let midiSynthComp = null;
     let midiNoiseBuffer = null;
+    let holdReverbBuffer = null;
     let midiSynthNodes = [];
 
     let ctx;
@@ -1334,28 +1335,63 @@
       const base = note.note
         ? 440 * Math.pow(2, (note.note - 69) / 12)
         : (220 + lane * 55);
-      const osc = audioCtx.createOscillator();
-      const gain = audioCtx.createGain();
-      osc.type = "triangle";
-      osc.frequency.setValueAtTime(base, now);
-      gain.gain.setValueAtTime(0.0001, now);
-      gain.gain.exponentialRampToValueAtTime(Math.max(0.001, 0.05 * sfxVolume), now + 0.04);
-      osc.connect(gain);
-      gain.connect(audioCtx.destination);
-      osc.start(now);
-      return { osc, gain };
+      const output = audioCtx.createGain();
+      output.gain.setValueAtTime(0.0001, now);
+      output.gain.exponentialRampToValueAtTime(Math.max(0.002, 0.095 * sfxVolume), now + 0.06);
+
+      const dry = audioCtx.createGain();
+      const wet = audioCtx.createGain();
+      dry.gain.value = 0.52;
+      wet.gain.value = 0.6;
+      const convolver = audioCtx.createConvolver();
+      if (!holdReverbBuffer) holdReverbBuffer = buildReverbImpulse(audioCtx, 1.05, 3.0);
+      convolver.buffer = holdReverbBuffer;
+
+      output.connect(dry);
+      output.connect(convolver);
+      convolver.connect(wet);
+      dry.connect(audioCtx.destination);
+      wet.connect(audioCtx.destination);
+
+      const partials = [1, 2.08, 2.95];
+      const levels = [0.07, 0.04, 0.025];
+      const oscs = [];
+      const gains = [];
+      for (let i = 0; i < partials.length; i += 1) {
+        const osc = audioCtx.createOscillator();
+        const g = audioCtx.createGain();
+        osc.type = "sine";
+        osc.frequency.setValueAtTime(base * partials[i], now);
+        g.gain.setValueAtTime(levels[i], now);
+        osc.connect(g);
+        g.connect(output);
+        osc.start(now);
+        oscs.push(osc);
+        gains.push(g);
+      }
+
+      const lfo = audioCtx.createOscillator();
+      const lfoGain = audioCtx.createGain();
+      lfo.type = "sine";
+      lfo.frequency.setValueAtTime(5.1, now);
+      lfoGain.gain.setValueAtTime(0.014 * Math.max(0.6, sfxVolume), now);
+      lfo.connect(lfoGain);
+      lfoGain.connect(output.gain);
+      lfo.start(now);
+      return { output, dry, wet, convolver, oscs, gains, lfo, lfoGain };
     }
 
     function stopHoldSustain(holdEntry) {
       if (!holdEntry || !holdEntry.sustain) return;
       const audioCtx = ensureAudioContext();
       const now = audioCtx.currentTime;
-      const { osc, gain } = holdEntry.sustain;
+      const s = holdEntry.sustain;
       try {
-        gain.gain.cancelScheduledValues(now);
-        gain.gain.setValueAtTime(Math.max(0.0001, gain.gain.value || 0.02), now);
-        gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.05);
-        osc.stop(now + 0.055);
+        s.output.gain.cancelScheduledValues(now);
+        s.output.gain.setValueAtTime(Math.max(0.0001, s.output.gain.value || 0.02), now);
+        s.output.gain.exponentialRampToValueAtTime(0.0001, now + 0.09);
+        for (const osc of s.oscs || []) osc.stop(now + 0.1);
+        if (s.lfo) s.lfo.stop(now + 0.1);
       } catch {}
       holdEntry.sustain = null;
     }
