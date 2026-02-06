@@ -766,6 +766,10 @@
     let holdReverbBuffer = null;
     let holdSustainBus = null;
     let midiSynthNodes = [];
+    let midiScheduleTimer = null;
+    let midiScheduleCursor = 0;
+    let midiScheduleOnsets = null;
+    let midiScheduleSongOffset = 0;
 
     let ctx;
     let audioBuffer = null;
@@ -1105,6 +1109,13 @@
     }
 
     function stopMidiSynth() {
+      if (midiScheduleTimer) {
+        clearInterval(midiScheduleTimer);
+        midiScheduleTimer = null;
+      }
+      midiScheduleCursor = 0;
+      midiScheduleOnsets = null;
+      midiScheduleSongOffset = 0;
       if (midiSynthNodes.length) {
         midiSynthNodes.forEach((n) => {
           try { n.stop(0); } catch {}
@@ -1135,7 +1146,7 @@
       }
       if (!midiSynthGain) {
         midiSynthGain = audioCtx.createGain();
-        midiSynthGain.gain.value = 0.38;
+        midiSynthGain.gain.value = 0.56;
         midiSynthFilter = audioCtx.createBiquadFilter();
         midiSynthFilter.type = "lowpass";
         midiSynthFilter.frequency.value = 12000;
@@ -1151,96 +1162,69 @@
         midiSynthComp.connect(audioCtx.destination);
       }
       stopMidiSynth();
-      const now = audioCtx.currentTime;
-      const offset = now - startTime;
       const sorted = onsets.slice().sort((a, b) => a.t - b.t);
       const nextByCh = new Map();
-      const gaps = new Array(sorted.length).fill(0.12);
       for (let i = sorted.length - 1; i >= 0; i -= 1) {
         const ch = sorted[i].ch ?? 0;
         const next = nextByCh.get(ch);
-        if (next) gaps[i] = Math.max(0.02, next.t - sorted[i].t);
+        sorted[i]._gap = next ? Math.max(0.02, next.t - sorted[i].t) : 0.12;
         nextByCh.set(ch, sorted[i]);
       }
-      const canPan = typeof audioCtx.createStereoPanner === "function";
-      for (let i = 0; i < sorted.length; i += 1) {
-        const o = sorted[i];
+      midiScheduleOnsets = sorted;
+      midiScheduleCursor = 0;
+      midiScheduleSongOffset = Math.max(0, pauseOffset || 0);
+
+      const scheduleOne = (o, at) => {
         const freq = 440 * Math.pow(2, (o.note - 69) / 12);
-        const startAt = Math.max(audioCtx.currentTime + 0.01, now + o.t - offset);
-        const vel = Math.max(0.25, Math.min(1, o.v ?? 0.6));
-        const gap = gaps[i];
-        const dur = o.ch === 9
-          ? Math.min(0.1, gap * 0.55)
-          : (o.note < 48
-            ? Math.max(0.07, Math.min(0.24, gap * 0.9))
-            : Math.max(0.035, Math.min(0.16, gap * 0.72)));
-        const baseAmp = 0.035 + vel * 0.09;
-        const outGain = audioCtx.createGain();
-        outGain.gain.setValueAtTime(0.0001, startAt);
-        outGain.gain.exponentialRampToValueAtTime(baseAmp, startAt + 0.01);
-        outGain.gain.exponentialRampToValueAtTime(0.0001, startAt + dur);
+        const vel = Math.max(0.2, Math.min(1, o.v ?? 0.65));
+        const role = o.role || "melody";
+        const gap = o._gap || 0.12;
+        const dur = role === "bass"
+          ? Math.max(0.08, Math.min(0.24, gap * 0.92))
+          : Math.max(0.04, Math.min(0.16, gap * 0.7));
 
-        if (canPan) {
-          const ch = o.ch ?? 0;
-          const pan = audioCtx.createStereoPanner();
-          const panVal = ((ch % 8) / 7) * 0.5 - 0.25;
-          pan.pan.setValueAtTime(panVal, startAt);
-          outGain.connect(pan);
-          pan.connect(midiSynthGain);
-        } else {
-          outGain.connect(midiSynthGain);
+        const gain = audioCtx.createGain();
+        const osc = audioCtx.createOscillator();
+        const amp = role === "bass" ? 0.11 : (role === "rhythm" ? 0.085 : 0.095);
+        gain.gain.setValueAtTime(0.0001, at);
+        gain.gain.exponentialRampToValueAtTime(amp * vel, at + 0.01);
+        gain.gain.exponentialRampToValueAtTime(0.0001, at + dur);
+        osc.type = role === "bass" ? "sine" : (role === "rhythm" ? "triangle" : "sine");
+        osc.frequency.setValueAtTime(role === "bass" ? freq * 0.5 : freq, at);
+        osc.connect(gain);
+        gain.connect(midiSynthGain);
+        osc.start(at);
+        osc.stop(at + dur + 0.01);
+        midiSynthNodes.push(osc);
+      };
+
+      const tick = () => {
+        if (!midiScheduleOnsets || paused) return;
+        const now = audioCtx.currentTime;
+        const horizon = now + 0.36;
+        while (midiScheduleCursor < midiScheduleOnsets.length) {
+          const o = midiScheduleOnsets[midiScheduleCursor];
+          const at = startTime + (o.t - midiScheduleSongOffset);
+          if (at > horizon) break;
+          if (at >= now - 0.03) scheduleOne(o, at);
+          midiScheduleCursor += 1;
         }
-
-        if (o.ch === 9) {
-          const noise = audioCtx.createBufferSource();
-          noise.buffer = getMidiNoiseBuffer(audioCtx);
-          const hp = audioCtx.createBiquadFilter();
-          hp.type = "highpass";
-          hp.frequency.value = 1200;
-          noise.connect(hp);
-          hp.connect(outGain);
-          noise.start(startAt);
-          noise.stop(startAt + 0.12);
-          midiSynthNodes.push(noise);
-          continue;
+        if (midiScheduleCursor >= midiScheduleOnsets.length && midiScheduleTimer) {
+          clearInterval(midiScheduleTimer);
+          midiScheduleTimer = null;
         }
+      };
 
-        const osc1 = audioCtx.createOscillator();
-        const osc2 = audioCtx.createOscillator();
-        osc1.type = o.note > 76 ? "sawtooth" : "triangle";
-        osc2.type = "sine";
-        osc1.frequency.setValueAtTime(freq, startAt);
-        osc2.frequency.setValueAtTime(freq * 2, startAt);
-        osc2.detune.setValueAtTime(Math.random() * 8 - 4, startAt);
-        osc1.connect(outGain);
-        osc2.connect(outGain);
-        osc1.start(startAt);
-        osc2.start(startAt);
-        osc1.stop(startAt + dur);
-        osc2.stop(startAt + dur);
-        midiSynthNodes.push(osc1, osc2);
-
-        if (o.note < 50) {
-          const sub = audioCtx.createOscillator();
-          const subGain = audioCtx.createGain();
-          sub.type = "sine";
-          sub.frequency.setValueAtTime(freq / 2, startAt);
-          subGain.gain.setValueAtTime(0.0001, startAt);
-          subGain.gain.exponentialRampToValueAtTime(baseAmp * 0.45, startAt + 0.01);
-          subGain.gain.exponentialRampToValueAtTime(0.0001, startAt + dur);
-          sub.connect(subGain);
-          subGain.connect(outGain);
-          sub.start(startAt);
-          sub.stop(startAt + dur);
-          midiSynthNodes.push(sub);
-        }
-      }
+      tick();
+      midiScheduleTimer = setInterval(tick, 34);
     }
 
-    function computeScrollTimeFromBpm(bpm) {
+    function computeScrollTimeFromBpm(bpm, source = "audio") {
       const safeBpm = Math.max(70, Math.min(220, bpm || 120));
-      // Faster songs should visually fall faster.
-      return Math.max(1.28, Math.min(2.35, 230 / safeBpm));
+      if (source === "midi") {
+        return Math.max(0.96, Math.min(1.7, 168 / safeBpm));
+      }
+      return Math.max(1.18, Math.min(2.2, 210 / safeBpm));
     }
 
     function buildReverbImpulse(ctx, seconds = 1.1, decay = 2.6) {
@@ -1864,28 +1848,19 @@
           group.push(sorted[i]);
           i += 1;
         }
-        if (Math.random() > density * 1.1) continue;
         group.sort((a, b) => a.note - b.note);
         const c = colorForTime(t0);
-        if (group.length === 1) {
-          const lane = laneCursor % laneCount;
-          laneCursor += 1;
-          notes.push({ t: t0, lane, type: "tap", color: c });
-        } else {
-          const count = Math.min(group.length, laneCount);
-          for (let j = 0; j < count; j += 1) {
-            const lane = count === 1 ? laneCursor % laneCount : Math.round(j * (laneCount - 1) / (count - 1));
-            notes.push({ t: t0, lane, type: "tap", color: c });
-          }
-          laneCursor += 1;
+        for (let j = 0; j < group.length; j += 1) {
+          const lane = group.length <= laneCount
+            ? (group.length === 1 ? laneCursor % laneCount : Math.round(j * (laneCount - 1) / (group.length - 1)))
+            : (j % laneCount);
+          const extraStep = Math.floor(j / laneCount);
+          const t = t0 + extraStep * 0.01;
+          notes.push({ t, lane, type: "tap", color: c });
         }
+        laneCursor += 1;
       }
-      const target = 800;
-      if (notes.length > target) {
-        const ratio = target / notes.length;
-        return notes.filter(() => Math.random() < ratio);
-      }
-      return injectHolds(notes, bpm);
+      return notes.sort((a, b) => a.t - b.t);
     }
 
     function filterMidiOnsets(onsets, mode) {
@@ -2018,11 +1993,17 @@
       instrCandidates.sort((a, b) => b.count - a.count);
       let instrCh = instrCandidates[0]?.ch ?? null;
 
-      const selected = new Set([melodyCh, bassCh, instrCh].filter((v) => v !== null && v !== undefined));
+      const roleByChannel = new Map();
+      if (melodyCh !== null && melodyCh !== undefined) roleByChannel.set(melodyCh, "melody");
+      if (instrCh !== null && instrCh !== undefined && !roleByChannel.has(instrCh)) roleByChannel.set(instrCh, "rhythm");
+      if (bassCh !== null && bassCh !== undefined && !roleByChannel.has(bassCh)) roleByChannel.set(bassCh, "bass");
+      const selected = new Set(roleByChannel.keys());
       const picked = [];
       for (const o of onsets) {
         const ch = o.ch ?? 0;
-        if (selected.has(ch)) picked.push(o);
+        if (selected.has(ch)) {
+          picked.push({ ...o, role: roleByChannel.get(ch) || "melody" });
+        }
       }
       return picked.sort((a, b) => a.t - b.t);
     }
@@ -2958,7 +2939,7 @@
         }
         // For MIDI gameplay, chart and background playback share the same 3-track source.
         baseOnsets = midiPlaybackOnsets;
-        scrollTime = computeScrollTimeFromBpm(estimatedBpm);
+        scrollTime = computeScrollTimeFromBpm(estimatedBpm, "midi");
         if (midiTimeSig && (["4/4", "3/4", "5/4", "7/8", "6/8", "9/8", "12/8"].includes(midiTimeSig))) {
           timeSig = midiTimeSig;
         }
@@ -3022,7 +3003,7 @@
         ? mergeOnsetsWeighted(onsetsByMode, { drum: 1.2, bass: 1.1, guitar: 1.0, piano: 0.9, vocal: 0.8, mix: 0.9 })
         : onsetsByMode.mix;
       estimatedBpm = estimateBpmFromOnsets(baseOnsets);
-      scrollTime = computeScrollTimeFromBpm(estimatedBpm);
+      scrollTime = computeScrollTimeFromBpm(estimatedBpm, "audio");
       const keyInfo = estimateKeyFromBuffer(audioBuffer);
       keyLabel = keyInfo.label;
       keyBaseFreq = 440 * Math.pow(2, (keyInfo.root - 9) / 12) * 4;
@@ -3083,7 +3064,7 @@
       if (!baseOnsets.length || !onsetsByMode) return;
       stopGame();
       resetScore();
-      scrollTime = computeScrollTimeFromBpm(estimatedBpm);
+      scrollTime = computeScrollTimeFromBpm(estimatedBpm, currentSource === "midi" ? "midi" : "audio");
       beatOffset = beatTrack ? estimateBeatPhase(baseOnsets, estimatedBpm) : 0;
       if (timeSig === "auto") {
         const est = estimateTimeSignature(baseOnsets, estimatedBpm);
@@ -3132,10 +3113,12 @@
       sourceNode.onended = () => {
         running = false;
         cancelAnimationFrame(rafId);
+        stopMidiSynth();
         setStatus(t("status_end", score));
         render(audioBuffer.duration + 1);
       };
 
+      pauseOffset = 0;
       startTime = audioCtx.currentTime + 0.08;
       sourceNode.start(startTime);
       if (currentSource === "midi" && midiOnsets) {
@@ -3143,7 +3126,6 @@
       }
       running = true;
       paused = false;
-      pauseOffset = 0;
       nextMissIndex = 0;
       setStatus(t("status_playing"));
       loop();
@@ -3175,6 +3157,7 @@
           running = false;
           paused = false;
           cancelAnimationFrame(rafId);
+          stopMidiSynth();
           setStatus(t("status_end", score));
           render(audioBuffer.duration + 1);
           ui.pause.textContent = t("btn_pause");
