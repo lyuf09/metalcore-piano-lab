@@ -15,6 +15,16 @@
       --text: #eef3f9;
       --muted: #9ea9b6;
       --danger: #e06c75;
+      --bg-grad-1: rgba(246, 234, 200, 0.07);
+      --bg-grad-2: rgba(164, 184, 210, 0.08);
+      --bg-overlay-1: rgba(255, 255, 255, 0.05);
+      --bg-overlay-2: rgba(248, 229, 188, 0.04);
+      --panel-grad-1: rgba(18, 22, 30, 0.82);
+      --panel-grad-2: rgba(12, 15, 21, 0.8);
+      --canvas-grad-1: rgba(26, 33, 43, 0.43);
+      --canvas-grad-2: rgba(14, 18, 25, 0.4);
+      --key-grad-1: rgba(248, 252, 255, 0.08);
+      --key-grad-2: rgba(248, 252, 255, 0.02);
       --lane-1: #3c4858;
       --lane-2: #435061;
       --lane-3: #4a5768;
@@ -29,8 +39,8 @@
       margin: 0;
       font-family: "Avenir Next", "SF Pro Display", "Noto Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif;
       background:
-        radial-gradient(80vmax 60vmax at 12% -10%, rgba(246, 234, 200, 0.07), transparent 56%),
-        radial-gradient(60vmax 44vmax at 84% 100%, rgba(164, 184, 210, 0.08), transparent 64%),
+        radial-gradient(80vmax 60vmax at 12% -10%, var(--bg-grad-1), transparent 56%),
+        radial-gradient(60vmax 44vmax at 84% 100%, var(--bg-grad-2), transparent 64%),
         var(--bg);
       color: var(--text);
       min-height: 100vh;
@@ -45,8 +55,8 @@
       position: fixed;
       inset: 0;
       background:
-        linear-gradient(120deg, rgba(255, 255, 255, 0.05), transparent 24%),
-        linear-gradient(240deg, rgba(248, 229, 188, 0.04), transparent 30%);
+        linear-gradient(120deg, var(--bg-overlay-1), transparent 24%),
+        linear-gradient(240deg, var(--bg-overlay-2), transparent 30%);
       pointer-events: none;
       opacity: 0.62;
     }
@@ -61,7 +71,7 @@
     .panel {
       background:
         linear-gradient(160deg, rgba(255, 255, 255, 0.045) 0%, rgba(255, 255, 255, 0) 26%),
-        linear-gradient(180deg, rgba(18, 22, 30, 0.82), rgba(12, 15, 21, 0.8));
+        linear-gradient(180deg, var(--panel-grad-1), var(--panel-grad-2));
       border: 1px solid var(--line);
       border-radius: 18px;
       padding: 16px;
@@ -275,7 +285,7 @@
       border-radius: 18px;
       border: 1px solid var(--line);
       background:
-        linear-gradient(180deg, rgba(26, 33, 43, 0.43), rgba(14, 18, 25, 0.4) 74%);
+        linear-gradient(180deg, var(--canvas-grad-1), var(--canvas-grad-2) 74%);
       display: block;
       box-shadow:
         0 22px 40px rgba(0, 0, 0, 0.38),
@@ -293,7 +303,7 @@
       border: 1px solid var(--line);
       border-radius: 10px;
       background:
-        linear-gradient(180deg, rgba(248, 252, 255, 0.08), rgba(248, 252, 255, 0.02)),
+        linear-gradient(180deg, var(--key-grad-1), var(--key-grad-2)),
         rgba(18, 23, 31, 0.48);
       font-size: 12px;
       color: var(--muted);
@@ -380,6 +390,36 @@
       color: var(--muted);
       font-size: 13px;
       line-height: 1.6;
+    }
+
+    .keybinds {
+      display: grid;
+      gap: 8px;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+
+    .keybind-btn {
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 10px 8px;
+      background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.02)),
+        rgba(18, 23, 31, 0.45);
+      color: var(--text);
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      cursor: pointer;
+    }
+
+    .keybind-btn.listening {
+      border-color: rgba(255, 226, 166, 0.7);
+      box-shadow: 0 0 18px rgba(255, 226, 166, 0.28);
+    }
+
+    .keybind-hint {
+      font-size: 11px;
+      color: var(--muted);
     }
 
     .left .guide-card {
@@ -625,17 +665,38 @@
           </select>
         </div>
 
-        <div class="group">
-          <div class="row">
-            <label class="muted" for="laneCount" data-i18n="label_lane">按键数量</label>
-            <span id="laneText" class="muted">4 键</span>
-          </div>
-          <select id="laneCount">
-            <option value="4" selected>4 键</option>
-            <option value="6">6 键</option>
-            <option value="8">8 键</option>
-          </select>
+      <div class="group">
+        <div class="row">
+          <label class="muted" for="laneCount" data-i18n="label_lane">按键数量</label>
+          <span id="laneText" class="muted">4 键</span>
         </div>
+        <select id="laneCount">
+          <option value="4" selected>4 键</option>
+          <option value="6">6 键</option>
+          <option value="8">8 键</option>
+        </select>
+      </div>
+
+      <div class="group">
+        <div class="row">
+          <label class="muted" for="themeSelect" data-i18n="label_theme">主题预设</label>
+          <span id="themeText" class="muted" data-i18n="theme_silver">银蓝</span>
+        </div>
+        <select id="themeSelect">
+          <option value="gold" data-i18n="theme_gold">暗金</option>
+          <option value="silver" data-i18n="theme_silver" selected>银蓝</option>
+          <option value="obsidian" data-i18n="theme_obsidian">黑曜石</option>
+        </select>
+      </div>
+
+      <div class="group">
+        <div class="row">
+          <label class="muted" data-i18n="label_keybind">按键绑定</label>
+          <button id="keyReset" class="secondary" data-i18n="btn_keyreset">重置</button>
+        </div>
+        <div id="keybinds" class="keybinds"></div>
+        <div class="keybind-hint" data-i18n="keybind_hint">点击按键框后按键盘设置</div>
+      </div>
 
       <div class="group">
         <div class="row">
@@ -747,6 +808,10 @@
       sfxText: document.getElementById("sfxText"),
       fxQuality: document.getElementById("fxQuality"),
       fxQualityText: document.getElementById("fxQualityText"),
+      themeSelect: document.getElementById("themeSelect"),
+      themeText: document.getElementById("themeText"),
+      keybinds: document.getElementById("keybinds"),
+      keyReset: document.getElementById("keyReset"),
       status: document.getElementById("status"),
       bpm: document.getElementById("bpmStat"),
       notes: document.getElementById("noteStat"),
@@ -763,7 +828,7 @@
       6: ["a", "s", "d", "j", "k", "l"],
       8: ["a", "s", "d", "f", "j", "k", "l", ";"]
     };
-    const tonePalette = [
+    let tonePalette = [
       { hue: 195, sat: 18, light: 76 },
       { hue: 205, sat: 22, light: 70 },
       { hue: 215, sat: 26, light: 64 },
@@ -799,6 +864,9 @@
     let FX_PARTICLE_GLOW = 1;
     let activeHolds = [];
     const pressedKeys = new Set();
+    let keyBindings = [];
+    let bindingLane = null;
+    let theme = "silver";
     let midiOnsets = null;
     let midiPlaybackOnsets = null;
     let midiBpm = null;
@@ -877,6 +945,13 @@
         label_timesig: "拍号",
         label_difficulty: "难度",
         label_lane: "按键数量",
+        label_theme: "主题预设",
+        theme_gold: "暗金",
+        theme_silver: "银蓝",
+        theme_obsidian: "黑曜石",
+        label_keybind: "按键绑定",
+        btn_keyreset: "重置",
+        keybind_hint: "点击按键框后按键盘设置",
         label_lock: "节拍锁定强度",
         label_sfx: "音效音量",
         label_fx_quality: "特效档位",
@@ -967,6 +1042,13 @@
         label_timesig: "Time Signature",
         label_difficulty: "Difficulty",
         label_lane: "Key Count",
+        label_theme: "Theme",
+        theme_gold: "Dark Gold",
+        theme_silver: "Silver Blue",
+        theme_obsidian: "Obsidian",
+        label_keybind: "Key Bindings",
+        btn_keyreset: "Reset",
+        keybind_hint: "Click a slot, then press a key",
         label_lock: "Beat Lock",
         label_sfx: "SFX Volume",
         label_fx_quality: "FX Quality",
@@ -1076,6 +1158,14 @@
       Array.from(ui.laneCount.options).forEach((opt) => {
         opt.textContent = t("lane_keys", opt.value);
       });
+      const themeLabels = {
+        gold: t("theme_gold"),
+        silver: t("theme_silver"),
+        obsidian: t("theme_obsidian")
+      };
+      Array.from(ui.themeSelect.options).forEach((opt) => {
+        opt.textContent = themeLabels[opt.value] || opt.value;
+      });
       const fxLabels = {
         off: t("fx_off"),
         medium: t("fx_medium"),
@@ -1103,12 +1193,14 @@
       ui.difficultyText.textContent = diffLabels[difficulty] || t("difficulty_normal");
       ui.laneText.textContent = t("lane_keys", laneCount);
       ui.fxQualityText.textContent = fxLabels[fxQuality] || t("fx_high");
+      ui.themeText.textContent = themeLabels[theme] || t("theme_silver");
       ui.pause.textContent = paused ? t("btn_resume") : t("btn_pause");
     }
 
     function buildKeyMap() {
       keyMap = {};
-      const keys = keySets[laneCount] || keySets[4];
+      keyBindings = loadKeyBindings(laneCount);
+      const keys = keyBindings;
       keys.forEach((k, i) => {
         keyMap[k] = i;
       });
@@ -1145,6 +1237,7 @@
         keysWrap.appendChild(el);
         ui.keyEls.push(el);
       }
+      renderKeybinds();
     }
 
     function updateDifficulty() {
@@ -2579,6 +2672,152 @@
         FX_GLOW = 1;
         FX_PARTICLE_GLOW = 1;
         FLASH_DURATION = 0.2;
+      }
+    }
+
+    const themePresets = {
+      gold: {
+        label: "theme_gold",
+        vars: {
+          "--bg": "#0b0b0a",
+          "--panel": "#15130f",
+          "--line": "rgba(240, 220, 170, 0.12)",
+          "--line-soft": "rgba(240, 220, 170, 0.06)",
+          "--accent": "#d0b47a",
+          "--accent-2": "#f1d59a",
+          "--text": "#f4f0e8",
+          "--muted": "#b7aa93",
+          "--bg-grad-1": "rgba(214, 174, 90, 0.08)",
+          "--bg-grad-2": "rgba(96, 76, 36, 0.1)",
+          "--bg-overlay-1": "rgba(255, 235, 190, 0.06)",
+          "--bg-overlay-2": "rgba(210, 170, 90, 0.05)",
+          "--panel-grad-1": "rgba(22, 18, 12, 0.92)",
+          "--panel-grad-2": "rgba(16, 14, 10, 0.9)",
+          "--canvas-grad-1": "rgba(34, 28, 18, 0.5)",
+          "--canvas-grad-2": "rgba(18, 14, 10, 0.46)",
+          "--key-grad-1": "rgba(255, 244, 216, 0.1)",
+          "--key-grad-2": "rgba(255, 244, 216, 0.02)"
+        },
+        palette: [
+          { hue: 38, sat: 24, light: 76 },
+          { hue: 34, sat: 22, light: 70 },
+          { hue: 30, sat: 20, light: 64 },
+          { hue: 45, sat: 18, light: 58 },
+          { hue: 28, sat: 16, light: 72 }
+        ]
+      },
+      silver: {
+        label: "theme_silver",
+        vars: {
+          "--bg": "#090b0f",
+          "--panel": "#11141a",
+          "--line": "rgba(226, 236, 248, 0.13)",
+          "--line-soft": "rgba(226, 236, 248, 0.07)",
+          "--accent": "#b7c4d3",
+          "--accent-2": "#f2d9a2",
+          "--text": "#eef3f9",
+          "--muted": "#9ea9b6",
+          "--bg-grad-1": "rgba(246, 234, 200, 0.07)",
+          "--bg-grad-2": "rgba(164, 184, 210, 0.08)",
+          "--bg-overlay-1": "rgba(255, 255, 255, 0.05)",
+          "--bg-overlay-2": "rgba(248, 229, 188, 0.04)",
+          "--panel-grad-1": "rgba(18, 22, 30, 0.82)",
+          "--panel-grad-2": "rgba(12, 15, 21, 0.8)",
+          "--canvas-grad-1": "rgba(26, 33, 43, 0.43)",
+          "--canvas-grad-2": "rgba(14, 18, 25, 0.4)",
+          "--key-grad-1": "rgba(248, 252, 255, 0.08)",
+          "--key-grad-2": "rgba(248, 252, 255, 0.02)"
+        },
+        palette: [
+          { hue: 195, sat: 18, light: 76 },
+          { hue: 205, sat: 22, light: 70 },
+          { hue: 215, sat: 26, light: 64 },
+          { hue: 228, sat: 18, light: 58 },
+          { hue: 238, sat: 14, light: 74 }
+        ]
+      },
+      obsidian: {
+        label: "theme_obsidian",
+        vars: {
+          "--bg": "#080b10",
+          "--panel": "#0f141b",
+          "--line": "rgba(170, 190, 220, 0.12)",
+          "--line-soft": "rgba(170, 190, 220, 0.06)",
+          "--accent": "#a7b4c6",
+          "--accent-2": "#d8e0ee",
+          "--text": "#e7eef8",
+          "--muted": "#8f9baa",
+          "--bg-grad-1": "rgba(90, 120, 160, 0.08)",
+          "--bg-grad-2": "rgba(30, 40, 60, 0.12)",
+          "--bg-overlay-1": "rgba(120, 140, 170, 0.05)",
+          "--bg-overlay-2": "rgba(60, 70, 90, 0.05)",
+          "--panel-grad-1": "rgba(12, 18, 26, 0.9)",
+          "--panel-grad-2": "rgba(10, 14, 20, 0.88)",
+          "--canvas-grad-1": "rgba(18, 24, 34, 0.5)",
+          "--canvas-grad-2": "rgba(10, 14, 20, 0.46)",
+          "--key-grad-1": "rgba(220, 230, 245, 0.08)",
+          "--key-grad-2": "rgba(220, 230, 245, 0.02)"
+        },
+        palette: [
+          { hue: 208, sat: 20, light: 74 },
+          { hue: 214, sat: 22, light: 68 },
+          { hue: 220, sat: 24, light: 62 },
+          { hue: 230, sat: 18, light: 58 },
+          { hue: 200, sat: 16, light: 72 }
+        ]
+      }
+    };
+
+    function applyTheme(name, persist = true) {
+      const preset = themePresets[name] || themePresets.silver;
+      theme = name in themePresets ? name : "silver";
+      for (const [key, value] of Object.entries(preset.vars)) {
+        document.documentElement.style.setProperty(key, value);
+      }
+      tonePalette = preset.palette.slice();
+      if (ui.themeSelect) ui.themeSelect.value = theme;
+      if (ui.themeText) ui.themeText.textContent = t(preset.label);
+      if (persist) localStorage.setItem("theme", theme);
+    }
+
+    function defaultKeyBindings(count) {
+      return (keySets[count] || keySets[4]).slice();
+    }
+
+    function loadKeyBindings(count) {
+      const raw = localStorage.getItem(`keybinds_${count}`);
+      if (!raw) return defaultKeyBindings(count);
+      try {
+        const parsed = JSON.parse(raw);
+        if (!Array.isArray(parsed) || parsed.length !== count) return defaultKeyBindings(count);
+        const lowered = parsed.map((k) => String(k || "").toLowerCase());
+        const unique = new Set(lowered);
+        if (unique.size !== count || lowered.some((k) => !k)) return defaultKeyBindings(count);
+        return lowered;
+      } catch {
+        return defaultKeyBindings(count);
+      }
+    }
+
+    function saveKeyBindings(count, keys) {
+      localStorage.setItem(`keybinds_${count}`, JSON.stringify(keys));
+    }
+
+    function renderKeybinds() {
+      if (!ui.keybinds) return;
+      ui.keybinds.style.gridTemplateColumns = `repeat(${laneCount}, minmax(0, 1fr))`;
+      ui.keybinds.innerHTML = "";
+      for (let i = 0; i < laneCount; i += 1) {
+        const btn = document.createElement("button");
+        btn.className = "keybind-btn";
+        if (bindingLane === i) btn.classList.add("listening");
+        btn.textContent = (keyBindings[i] || "?").toUpperCase();
+        btn.type = "button";
+        btn.addEventListener("click", () => {
+          bindingLane = i;
+          renderKeybinds();
+        });
+        ui.keybinds.appendChild(btn);
       }
     }
 
@@ -4323,6 +4562,17 @@
       ui.fxQualityText.textContent = t(`fx_${fxQuality}`);
     });
 
+    ui.themeSelect.addEventListener("change", () => {
+      applyTheme(ui.themeSelect.value);
+    });
+
+    ui.keyReset.addEventListener("click", () => {
+      keyBindings = defaultKeyBindings(laneCount);
+      saveKeyBindings(laneCount, keyBindings);
+      bindingLane = null;
+      buildKeyMap();
+    });
+
     ui.difficulty.addEventListener("change", () => {
       difficulty = ui.difficulty.value;
       updateDifficulty();
@@ -4331,6 +4581,7 @@
     ui.laneCount.addEventListener("change", () => {
       laneCount = Number(ui.laneCount.value);
       ui.laneText.textContent = `${laneCount} 键`;
+      bindingLane = null;
       buildKeyMap();
       if (onsetsByMode && baseOnsets.length) {
         regenChart();
@@ -4390,6 +4641,23 @@
     });
 
     window.addEventListener("keydown", (e) => {
+      if (bindingLane !== null) {
+        const key = e.key.toLowerCase();
+        if (["shift", "control", "alt", "meta"].includes(key)) return;
+        const existing = keyBindings.indexOf(key);
+        if (existing >= 0 && existing !== bindingLane) {
+          const temp = keyBindings[existing];
+          keyBindings[existing] = keyBindings[bindingLane];
+          keyBindings[bindingLane] = temp;
+        } else {
+          keyBindings[bindingLane] = key;
+        }
+        saveKeyBindings(laneCount, keyBindings);
+        bindingLane = null;
+        buildKeyMap();
+        e.preventDefault();
+        return;
+      }
       const lane = keyMap[e.key.toLowerCase()];
       if (lane === undefined) return;
       if (pressedKeys.has(e.key.toLowerCase())) return;
@@ -4413,6 +4681,7 @@
       ui.densityText.textContent = `${Number(ui.density.value).toFixed(2)}x`;
       ui.offsetText.textContent = `${ui.offset.value} ms`;
       ui.sfxText.textContent = `${Math.round(sfxVolume * 100)}%`;
+      ui.themeText.textContent = t(themePresets[theme]?.label || "theme_silver");
       ui.status.textContent = t("status_idle");
       updateMobileToggle();
     });
@@ -4422,6 +4691,8 @@
     ui.sfxText.textContent = `${Math.round(sfxVolume * 100)}%`;
     ui.fxQualityText.textContent = t("fx_high");
     applyI18n();
+    theme = localStorage.getItem("theme") || "silver";
+    applyTheme(theme, false);
     ui.status.textContent = t("status_idle");
     ui.recordTimer.textContent = "60s";
     updateMobileToggle();
