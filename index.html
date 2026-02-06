@@ -1944,7 +1944,11 @@
         }
         laneCursor += 1;
       }
-      return injectHolds(notes.sort((a, b) => a.t - b.t), bpm, rng);
+      const withHolds = injectHolds(notes.sort((a, b) => a.t - b.t), bpm, rng);
+      const barSec = (60 / Math.max(60, bpm || 120)) * barBeats;
+      const riffSource = sorted.filter((o) => o.role === "rhythm" || o.role === "melody");
+      const riffMap = buildRiffTemplateMap(riffSource.length ? riffSource : sorted, barSec);
+      return enforceDifficultyComplexity(applyRiffReuse(withHolds, riffMap, barSec), bpm, barSec, rng);
     }
 
     function filterMidiOnsets(onsets, mode) {
@@ -2378,7 +2382,320 @@
       return Math.max(24, scaled);
     }
 
-    function buildChartFromOnsets(onsets, bpm, density, phaseOffset = 0, lock = 0.65, rng = Math.random) {
+    function centerOutLanes(count) {
+      const seq = [];
+      let left = Math.floor((count - 1) / 2);
+      let right = left + 1;
+      while (seq.length < count) {
+        if (left >= 0) {
+          seq.push(left);
+          left -= 1;
+        }
+        if (seq.length >= count) break;
+        if (right < count) {
+          seq.push(right);
+          right += 1;
+        }
+      }
+      return seq;
+    }
+
+    function dedupeAndSortNotes(notes) {
+      const sorted = notes.slice().sort((a, b) => a.t - b.t);
+      const out = [];
+      for (const n of sorted) {
+        const last = out[out.length - 1];
+        if (last && last.lane === n.lane && Math.abs(last.t - n.t) <= 0.012) {
+          if (n.type === "hold" && last.type !== "hold") out[out.length - 1] = n;
+          continue;
+        }
+        out.push(n);
+      }
+      return out;
+    }
+
+    function deriveDrumGuitarAnchors(drumOnsets, guitarOnsets, bpm) {
+      if (!drumOnsets || !guitarOnsets || !drumOnsets.length || !guitarOnsets.length) return [];
+      const beat = 60 / Math.max(70, bpm || 120);
+      const window = Math.min(0.055, beat * 0.22);
+      const drums = drumOnsets.slice().sort((a, b) => a.t - b.t);
+      const guitars = guitarOnsets.slice().sort((a, b) => a.t - b.t);
+      const anchors = [];
+      let gi = 0;
+      let lastT = -999;
+      for (const d of drums) {
+        while (gi < guitars.length && guitars[gi].t < d.t - window) gi += 1;
+        let best = null;
+        for (let k = gi; k < Math.min(guitars.length, gi + 4); k += 1) {
+          const gOn = guitars[k];
+          if (gOn.t > d.t + window) break;
+          const dist = Math.abs(gOn.t - d.t);
+          if (!best || dist < best.dist) best = { gOn, dist };
+        }
+        if (!best) continue;
+        const t = d.t * 0.55 + best.gOn.t * 0.45;
+        if (t - lastT < Math.max(0.08, beat * 0.22)) continue;
+        anchors.push({
+          t,
+          v: (d.v || 0.5) + (best.gOn.v || 0.5),
+          importance: 2
+        });
+        lastT = t;
+      }
+      return anchors;
+    }
+
+    function classifySectionGrammar(sections, modes, barSec) {
+      if (!sections || !sections.length) return [];
+      const mix = modes.mix || [];
+      const drum = modes.drum || [];
+      const guitar = modes.guitar || [];
+      const calcRate = (list, start, end) => {
+        const span = Math.max(0.1, end - start);
+        let c = 0;
+        let e = 0;
+        for (const o of list) {
+          if (o.t >= start && o.t < end) {
+            c += 1;
+            e += o.v || 0.5;
+          }
+        }
+        return { countPerSec: c / span, energyPerSec: e / span };
+      };
+      const meta = sections.map((s, i) => {
+        const start = s.startBar * barSec;
+        const end = s.endBar * barSec;
+        const mixStat = calcRate(mix, start, end);
+        const drumStat = calcRate(drum, start, end);
+        const guitarStat = calcRate(guitar, start, end);
+        return {
+          index: i,
+          startBar: s.startBar,
+          endBar: s.endBar,
+          start,
+          end,
+          bars: Math.max(1, s.endBar - s.startBar),
+          mixRate: mixStat.countPerSec,
+          mixEnergy: mixStat.energyPerSec,
+          drumRate: drumStat.countPerSec,
+          guitarRate: guitarStat.countPerSec
+        };
+      });
+      const energies = meta.map((m) => m.mixEnergy).sort((a, b) => a - b);
+      const median = energies[Math.floor(energies.length * 0.5)] || 1;
+      return meta.map((m) => {
+        let type = "verse";
+        if (m.index === 0 && meta.length > 1) type = "intro";
+        else if (m.index === meta.length - 1 && m.mixEnergy < median * 0.9) type = "outro";
+        else if (m.mixEnergy > median * 1.3 && m.drumRate > m.guitarRate * 0.65) type = "breakdown";
+        else if (m.mixEnergy > median * 1.1) type = "chorus";
+        else if (m.mixEnergy < median * 0.78) type = "bridge";
+        return { ...m, type };
+      });
+    }
+
+    function buildRiffTemplateMap(onsets, barSec, bins = 16) {
+      if (!onsets || !onsets.length || barSec <= 0) return new Map();
+      const barBits = new Map();
+      for (const o of onsets) {
+        const bar = Math.floor(o.t / barSec);
+        const pos = (o.t - bar * barSec) / barSec;
+        const bin = Math.max(0, Math.min(bins - 1, Math.round(pos * (bins - 1))));
+        if (!barBits.has(bar)) barBits.set(bar, new Set());
+        barBits.get(bar).add(bin);
+      }
+      const sigToBars = new Map();
+      for (const [bar, set] of barBits.entries()) {
+        if (set.size < 3) continue;
+        const sig = Array.from(set.values()).sort((a, b) => a - b).join(",");
+        if (!sigToBars.has(sig)) sigToBars.set(sig, []);
+        sigToBars.get(sig).push(bar);
+      }
+      const templateMap = new Map();
+      for (const bars of sigToBars.values()) {
+        if (bars.length < 2) continue;
+        const leader = bars[0];
+        for (let i = 1; i < bars.length; i += 1) templateMap.set(bars[i], leader);
+      }
+      return templateMap;
+    }
+
+    function applyRiffReuse(notes, templateMap, barSec) {
+      if (!templateMap || !templateMap.size || !notes.length) return notes;
+      const byBar = new Map();
+      for (const n of notes) {
+        const bar = Math.floor(n.t / barSec);
+        if (!byBar.has(bar)) byBar.set(bar, []);
+        byBar.get(bar).push(n);
+      }
+      for (const [bar, lead] of templateMap.entries()) {
+        const src = (byBar.get(lead) || []).slice().sort((a, b) => a.t - b.t);
+        const dst = (byBar.get(bar) || []).slice().sort((a, b) => a.t - b.t);
+        if (src.length < 2 || dst.length < 2) continue;
+        const srcLanes = src.map((n) => n.lane);
+        for (let i = 0; i < dst.length; i += 1) {
+          dst[i].lane = srcLanes[i % srcLanes.length];
+        }
+      }
+      return notes;
+    }
+
+    function applyAnchorAlignment(notes, anchors, bpm, rng = Math.random) {
+      if (!anchors || !anchors.length || !notes.length) return notes;
+      const beat = 60 / Math.max(70, bpm || 120);
+      const window = Math.min(0.055, beat * 0.2);
+      const laneSeq = centerOutLanes(laneCount);
+      for (let i = 0; i < anchors.length; i += 1) {
+        const a = anchors[i];
+        let best = null;
+        for (let j = 0; j < notes.length; j += 1) {
+          const n = notes[j];
+          const d = Math.abs(n.t - a.t);
+          if (d > window) continue;
+          if (!best || d < best.d) best = { idx: j, d };
+        }
+        if (best) {
+          const n = notes[best.idx];
+          n.t = a.t;
+          n.lane = laneSeq[i % laneSeq.length];
+          n.importance = Math.max(n.importance || 1, 1.8);
+        } else {
+          notes.push({
+            t: a.t,
+            lane: laneSeq[i % laneSeq.length],
+            type: "tap",
+            color: toneColor(rng),
+            importance: 2.1
+          });
+        }
+      }
+      return dedupeAndSortNotes(notes);
+    }
+
+    function injectMetalcorePatterns(notes, sections, anchors, bpm, barSec, rng = Math.random) {
+      if (!sections || !sections.length) return notes;
+      const difficultyGain = { easy: 0.45, normal: 0.72, hard: 0.96, expert: 1.15 }[difficulty] || 0.72;
+      const patterns = {
+        intro: [[0, 0.5]],
+        verse: [[0, 0.375, 0.5, 0.875]],
+        chorus: [[0, 0.25, 0.5, 0.75], [0, 0.375, 0.5, 0.75, 0.875]],
+        breakdown: [[0, 0.25, 0.375, 0.5, 0.75, 0.875], [0, 0.125, 0.25, 0.5, 0.625, 0.75]],
+        bridge: [[0, 0.5, 0.75]],
+        outro: [[0, 0.5]]
+      };
+      const hasNearby = (t, lane = null) => notes.some((n) =>
+        Math.abs(n.t - t) <= 0.042 && (lane === null || n.lane === lane)
+      );
+      const laneSeq = centerOutLanes(laneCount);
+      for (const sec of sections) {
+        const bank = patterns[sec.type] || patterns.verse;
+        const pat = bank[Math.floor(rng() * bank.length)];
+        const barStart = sec.startBar;
+        const barEnd = sec.endBar;
+        for (let bar = barStart; bar < barEnd; bar += 1) {
+          if (rng() > 0.72 * difficultyGain) continue;
+          const base = bar * barSec;
+          for (let pi = 0; pi < pat.length; pi += 1) {
+            let t = base + pat[pi] * barSec;
+            let nearest = null;
+            for (const a of anchors || []) {
+              const d = Math.abs(a.t - t);
+              if (d < Math.min(0.06, (60 / bpm) * 0.2) && (!nearest || d < nearest.d)) nearest = { a, d };
+            }
+            if (nearest) t = nearest.a.t;
+            const lane = laneSeq[(bar + pi) % laneSeq.length];
+            if (hasNearby(t, lane)) continue;
+            notes.push({
+              t,
+              lane,
+              type: "tap",
+              color: toneColor(rng),
+              importance: sec.type === "breakdown" ? 1.8 : 1.35
+            });
+            if ((difficulty === "hard" || difficulty === "expert") && sec.type === "breakdown" && rng() < 0.18) {
+              const lane2 = (lane + 2) % laneCount;
+              if (!hasNearby(t, lane2)) {
+                notes.push({
+                  t,
+                  lane: lane2,
+                  type: "tap",
+                  color: toneColor(rng),
+                  importance: 1.55
+                });
+              }
+            }
+          }
+        }
+      }
+      return dedupeAndSortNotes(notes);
+    }
+
+    function enforceDifficultyComplexity(notes, bpm, barSec, rng = Math.random) {
+      if (!notes.length) return notes;
+      const maxChordByDiff = { easy: 1, normal: 2, hard: 2, expert: 3 }[difficulty] || 2;
+      const targetNpsByDiff = { easy: 3.1, normal: 5.0, hard: 7.1, expert: 9.0 };
+      const targetNps = targetNpsByDiff[difficulty] || 5.0;
+      const sorted = dedupeAndSortNotes(notes);
+      const groups = new Map();
+      for (const n of sorted) {
+        const key = n.t.toFixed(3);
+        if (!groups.has(key)) groups.set(key, []);
+        groups.get(key).push(n);
+      }
+      for (const group of groups.values()) {
+        if (group.length <= maxChordByDiff) continue;
+        group.sort((a, b) => (b.importance || 1) - (a.importance || 1));
+        for (let i = maxChordByDiff; i < group.length; i += 1) {
+          group[i]._drop = true;
+        }
+      }
+      let compact = sorted.filter((n) => !n._drop);
+
+      // Local density trimming with note importance.
+      let guard = 0;
+      while (guard < 260) {
+        guard += 1;
+        let maxLoad = 0;
+        let left = 0;
+        let load = 0;
+        let bestWindow = null;
+        for (let i = 0; i < compact.length; i += 1) {
+          load += compact[i].type === "hold" ? 1.25 : 1;
+          while (compact[i].t - compact[left].t > 1.0) {
+            load -= compact[left].type === "hold" ? 1.25 : 1;
+            left += 1;
+          }
+          if (load > maxLoad) {
+            maxLoad = load;
+            bestWindow = { l: left, r: i };
+          }
+        }
+        if (!bestWindow || maxLoad <= targetNps) break;
+        let removeIdx = -1;
+        let bestCost = Infinity;
+        for (let i = bestWindow.l; i <= bestWindow.r; i += 1) {
+          const n = compact[i];
+          const imp = n.importance || 1;
+          const prev = compact[i - 1];
+          const next = compact[i + 1];
+          const localGap = (prev ? Math.abs(n.t - prev.t) : 0.2) + (next ? Math.abs(next.t - n.t) : 0.2);
+          const holdPenalty = n.type === "hold" ? 0.45 : 0;
+          const cost = imp * 2.1 + holdPenalty + localGap * 5 + rng() * 0.06;
+          if (cost < bestCost) {
+            bestCost = cost;
+            removeIdx = i;
+          }
+        }
+        if (removeIdx < 0) break;
+        compact.splice(removeIdx, 1);
+      }
+      return dedupeAndSortNotes(compact).map((n) => {
+        delete n.importance;
+        return n;
+      });
+    }
+
+    function buildChartFromOnsets(onsets, bpm, density, phaseOffset = 0, lock = 0.65, rng = Math.random, postprocess = true) {
       if (!onsets.length) return [];
       const beat = 60 / bpm;
       const grid = beat / 4;
@@ -2420,7 +2737,11 @@
         lane = (lane + 1 + (i % 2)) % laneCount;
         notes.push({ t: n.t, lane, type: "tap", color: colorForTime(n.t) });
       }
-      return injectHolds(notes.sort((a, b) => a.t - b.t), bpm, rng);
+      const base = injectHolds(notes.sort((a, b) => a.t - b.t), bpm, rng);
+      if (!postprocess) return base;
+      const barSec = (60 / Math.max(60, bpm || 120)) * barBeats;
+      const riffMap = buildRiffTemplateMap(onsets, barSec);
+      return enforceDifficultyComplexity(applyRiffReuse(base, riffMap, barSec), bpm, barSec, rng);
     }
 
     function injectHolds(notes, bpm, rng = Math.random) {
@@ -2674,6 +2995,8 @@
     function buildChartAuto(modes, bpm, density, phaseOffset, lock, barSec, rng = Math.random) {
       const segments = chooseSegments(modes, barSec);
       const sectionEnergy = detectSections(modes.mix || [], barSec);
+      const sectionGrammar = classifySectionGrammar(sectionEnergy, modes, barSec);
+      const anchors = deriveDrumGuitarAnchors(modes.drum || [], modes.guitar || [], bpm);
       const overallEnergy = (modes.mix || []).reduce((s, o) => s + o.v, 0) / Math.max(1, sectionEnergy.length);
       const barBins = 16;
       const buildTemplate = (onsets) => {
@@ -2721,7 +3044,7 @@
         const scale = overallEnergy > 0 ? Math.min(1.25, Math.max(0.8, secEnergy / overallEnergy)) : 1;
         const segDensity = density * scale;
         const onsets = (modes[seg.mode] || []).filter((o) => o.t >= seg.start && o.t < seg.end);
-        const chunk = buildChartFromOnsets(onsets, bpm, segDensity, phaseOffset, lock, rng);
+        const chunk = buildChartFromOnsets(onsets, bpm, segDensity, phaseOffset, lock, rng, false);
         // Align rhythm to section template when close.
         for (const n of chunk) {
           const bar = Math.floor(n.t / barSec);
@@ -2744,7 +3067,14 @@
         }
         for (const n of chunk) merged.push(n);
       }
-      return merged.sort((a, b) => a.t - b.t);
+      let out = merged.sort((a, b) => a.t - b.t).map((n) => ({ ...n, importance: n.type === "hold" ? 1.25 : 1 }));
+      out = applyAnchorAlignment(out, anchors, bpm, rng);
+      out = injectMetalcorePatterns(out, sectionGrammar, anchors, bpm, barSec, rng);
+      const riffSource = (modes.guitar && modes.guitar.length) ? modes.guitar : (modes.mix || []);
+      const riffMap = buildRiffTemplateMap(riffSource, barSec);
+      out = applyRiffReuse(out, riffMap, barSec);
+      out = enforceDifficultyComplexity(out, bpm, barSec, rng);
+      return out.sort((a, b) => a.t - b.t);
     }
 
     function roundRectPath(ctx2d, x, y, w, h, r) {
