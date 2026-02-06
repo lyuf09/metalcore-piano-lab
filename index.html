@@ -2348,11 +2348,11 @@
         const flashAge = currentTime - laneFlash[lane];
         if (flashAge >= 0 && flashAge < FLASH_DURATION) {
           const alpha = 1 - flashAge / FLASH_DURATION;
-          g.fillStyle = `rgba(130, 150, 172, ${0.34 * alpha})`;
+          g.fillStyle = `rgba(176, 188, 206, ${0.42 * alpha})`;
           g.fillRect(lane * laneWidth, 0, laneWidth, height);
-          g.fillStyle = `rgba(200, 210, 220, ${0.3 * alpha})`;
+          g.fillStyle = `rgba(246, 250, 255, ${0.42 * alpha})`;
           g.fillRect(lane * laneWidth, judgeY - 14, laneWidth, 28);
-          g.fillStyle = `rgba(196, 214, 232, ${0.16 * alpha})`;
+          g.fillStyle = `rgba(255, 232, 176, ${0.2 * alpha})`;
           g.fillRect(lane * laneWidth, judgeY - 54, laneWidth, 108);
         }
       }
@@ -2426,15 +2426,22 @@
         const py = p.y + p.vy * age + 80 * age * age;
         if (p.kind === "ring") {
           const rr = p.r + age * (p.expand || 100);
-          g.strokeStyle = `rgba(188, 210, 232, ${0.42 * alpha})`;
+          g.strokeStyle = p.tint === "gold"
+            ? `rgba(255, 228, 156, ${0.52 * alpha})`
+            : `rgba(238, 246, 255, ${0.52 * alpha})`;
           g.lineWidth = 1.5 + alpha * 2.5;
           g.beginPath();
           g.arc(px, py, rr, 0, Math.PI * 2);
           g.stroke();
         } else {
-          g.shadowBlur = 16;
-          g.shadowColor = `rgba(180, 210, 238, ${0.8 * alpha})`;
-          g.fillStyle = `rgba(196, 216, 236, ${0.74 * alpha})`;
+          const gold = p.tint === "gold";
+          g.shadowBlur = 20;
+          g.shadowColor = gold
+            ? `rgba(255, 210, 120, ${0.92 * alpha})`
+            : `rgba(232, 244, 255, ${0.92 * alpha})`;
+          g.fillStyle = gold
+            ? `rgba(255, 228, 166, ${0.82 * alpha})`
+            : `rgba(244, 249, 255, ${0.84 * alpha})`;
           g.beginPath();
           g.arc(px, py, p.r * (0.8 + 0.9 * alpha), 0, Math.PI * 2);
           g.fill();
@@ -2510,22 +2517,25 @@
       const laneWidth = gameState.width / laneCount;
       const baseX = lane * laneWidth + laneWidth / 2;
       const baseY = gameState.judgeY - 6;
-      const count = perfect ? 26 : 18;
+      const count = perfect ? 36 : 26;
       for (let i = 0; i < count; i += 1) {
         const angle = Math.random() * Math.PI * 2;
         const speed = (Math.random() * 95 + 70) * (perfect ? 1.15 : 1.02);
+        const tint = Math.random() < 0.46 ? "gold" : "white";
         particles.push({
           x: baseX + (Math.random() * 16 - 8),
           y: baseY + (Math.random() * 6 - 3),
           vx: Math.cos(angle) * speed,
           vy: Math.sin(angle) * speed - 40,
           r: Math.random() * 2.6 + 1.2,
+          tint,
           t,
           life: 0.44 + Math.random() * 0.2
         });
       }
       particles.push({
         kind: "ring",
+        tint: "white",
         x: baseX,
         y: baseY,
         vx: 0,
@@ -2535,13 +2545,25 @@
         t,
         life: perfect ? 0.28 : 0.24
       });
+      particles.push({
+        kind: "ring",
+        tint: "gold",
+        x: baseX,
+        y: baseY,
+        vx: 0,
+        vy: 0,
+        r: perfect ? 10 : 8,
+        expand: perfect ? 130 : 108,
+        t: t + 0.01,
+        life: perfect ? 0.24 : 0.2
+      });
     }
 
     function spawnHoldTrail(lane, t) {
       const laneWidth = gameState.width / laneCount;
       const x = lane * laneWidth + laneWidth / 2;
       const y = gameState.judgeY - 6;
-      for (let i = 0; i < 4; i += 1) {
+      for (let i = 0; i < 6; i += 1) {
         const angle = (Math.random() - 0.5) * Math.PI;
         const speed = 28 + Math.random() * 32;
         particles.push({
@@ -2550,6 +2572,7 @@
           vx: Math.cos(angle) * speed,
           vy: -Math.abs(Math.sin(angle) * speed) - 12,
           r: 1.2 + Math.random() * 1.7,
+          tint: Math.random() < 0.42 ? "gold" : "white",
           t,
           life: 0.2 + Math.random() * 0.12
         });
