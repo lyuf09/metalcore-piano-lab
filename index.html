@@ -2042,6 +2042,30 @@
           result.push(cur);
         }
       }
+      let holds = result.filter((n) => n.type === "hold").length;
+      if (holds === 0 && result.length >= 2) {
+        const sorted = result.slice().sort((a, b) => a.t - b.t);
+        let fallback = null;
+        for (let i = 0; i < sorted.length - 1; i += 1) {
+          const a = sorted[i];
+          const b = sorted[i + 1];
+          if (a.lane === b.lane && b.t - a.t >= beat * 0.9) {
+            fallback = { a, b };
+            break;
+          }
+        }
+        if (!fallback) {
+          fallback = { a: sorted[0], b: sorted[1] };
+        }
+        const { a, b } = fallback;
+        const endT = Math.min(b.t - 0.05, a.t + beat * 2.2);
+        result.push({
+          ...a,
+          type: "hold",
+          end: endT,
+          color: a.color
+        });
+      }
       return result.sort((a, b) => a.t - b.t);
     }
 
