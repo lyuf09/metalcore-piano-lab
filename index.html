@@ -2863,6 +2863,8 @@
         audioBuffer = await ensureAudioContext().decodeAudioData(buf.slice(0));
         fileName = "HaM - Haze_zzZ";
         currentSource = "audio";
+        midiOnsets = null;
+        midiPlaybackOnsets = null;
         ui.analyze.disabled = false;
         ui.bpm.textContent = "-";
         ui.notes.textContent = "-";
@@ -2946,7 +2948,10 @@
       render(0);
 
       await new Promise((r) => setTimeout(r, 30));
-      if (currentSource === "midi" && midiOnsets) {
+      const midiSelected = !!(ui.midi.files && ui.midi.files.length);
+      if ((currentSource === "midi" || midiSelected) && midiOnsets) {
+        currentSource = "midi";
+        onsetsByMode = null;
         estimatedBpm = midiBpm || 120;
         let playbackSource = midiOnsets;
         if (estimatedBpm < 100) {
@@ -3081,7 +3086,7 @@
     }
 
     function regenChart() {
-      if (!baseOnsets.length || !onsetsByMode) return;
+      if (!baseOnsets.length) return;
       stopGame();
       resetScore();
       scrollTime = computeScrollTimeFromBpm(estimatedBpm, currentSource === "midi" ? "midi" : "audio");
@@ -3096,17 +3101,22 @@
         ui.timeSigText.textContent = parsed.label;
       }
       const barSec = (60 / estimatedBpm) * barBeats;
-      if (focusMode === "auto") {
-        const autoModes = {
-          drum: onsetsByMode.drum,
-          guitar: onsetsByMode.guitar,
-          piano: onsetsByMode.piano,
-          vocal: onsetsByMode.vocal
-        };
-        chart = buildChartAuto(autoModes, estimatedBpm, Number(ui.density.value), beatOffset, beatLock, barSec);
+      if (currentSource === "midi") {
+        chart = capNotes(buildChartFromMidi(baseOnsets, estimatedBpm, Number(ui.density.value)), 800);
       } else {
-        const chosen = onsetsByMode[focusMode] || onsetsByMode.mix;
-        chart = buildChartFromOnsets(chosen, estimatedBpm, Number(ui.density.value), beatOffset, beatLock);
+        if (!onsetsByMode) return;
+        if (focusMode === "auto") {
+          const autoModes = {
+            drum: onsetsByMode.drum,
+            guitar: onsetsByMode.guitar,
+            piano: onsetsByMode.piano,
+            vocal: onsetsByMode.vocal
+          };
+          chart = capNotes(buildChartAuto(autoModes, estimatedBpm, Number(ui.density.value), beatOffset, beatLock, barSec), 800);
+        } else {
+          const chosen = onsetsByMode[focusMode] || onsetsByMode.mix;
+          chart = capNotes(buildChartFromOnsets(chosen, estimatedBpm, Number(ui.density.value), beatOffset, beatLock), 800);
+        }
       }
       for (const n of chart) n.hit = false;
       ui.notes.textContent = String(chart.length);
@@ -3201,6 +3211,8 @@
       fileName = file.name;
       setStatus("正在解码音频…");
       currentSource = "audio";
+      midiOnsets = null;
+      midiPlaybackOnsets = null;
       ui.analyze.disabled = true;
       ui.play.disabled = true;
       ui.pause.disabled = true;
@@ -3228,6 +3240,14 @@
     ui.midi.addEventListener("change", async (e) => {
       const file = e.target.files && e.target.files[0];
       if (!file) return;
+      stopGame();
+      resetScore();
+      chart = [];
+      onsetsByMode = null;
+      ui.play.disabled = true;
+      ui.pause.disabled = true;
+      ui.regen.disabled = true;
+      currentSource = "midi";
       try {
         const buf = await file.arrayBuffer();
         const parsed = parseMidi(buf);
@@ -3236,7 +3256,6 @@
         midiBpm = parsed.bpm;
         midiTimeSig = parsed.timeSig;
         midiDuration = parsed.duration;
-        currentSource = "midi";
         fileName = file.name.replace(/\.(mid|midi)$/i, "");
         audioBuffer = createSilentBuffer(Math.max(2, midiDuration + 1));
         setStatus(t("status_midi_loaded", fileName));
