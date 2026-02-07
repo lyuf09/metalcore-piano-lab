@@ -685,6 +685,8 @@
         <select id="themeSelect">
           <option value="gold" data-i18n="theme_gold">暗金</option>
           <option value="silver" data-i18n="theme_silver" selected>银蓝</option>
+          <option value="haze" data-i18n="theme_haze">雾蓝</option>
+          <option value="snow" data-i18n="theme_snow">白雪</option>
           <option value="obsidian" data-i18n="theme_obsidian">黑曜石</option>
         </select>
       </div>
@@ -948,6 +950,8 @@
         label_theme: "主题预设",
         theme_gold: "暗金",
         theme_silver: "银蓝",
+        theme_haze: "雾蓝",
+        theme_snow: "白雪",
         theme_obsidian: "黑曜石",
         label_keybind: "按键绑定",
         btn_keyreset: "重置",
@@ -1045,6 +1049,8 @@
         label_theme: "Theme",
         theme_gold: "Dark Gold",
         theme_silver: "Silver Blue",
+        theme_haze: "Haze Blue",
+        theme_snow: "Snow",
         theme_obsidian: "Obsidian",
         label_keybind: "Key Bindings",
         btn_keyreset: "Reset",
@@ -1161,6 +1167,8 @@
       const themeLabels = {
         gold: t("theme_gold"),
         silver: t("theme_silver"),
+        haze: t("theme_haze"),
+        snow: t("theme_snow"),
         obsidian: t("theme_obsidian")
       };
       Array.from(ui.themeSelect.options).forEach((opt) => {
@@ -2734,6 +2742,66 @@
           { hue: 215, sat: 26, light: 64 },
           { hue: 228, sat: 18, light: 58 },
           { hue: 238, sat: 14, light: 74 }
+        ]
+      },
+      haze: {
+        label: "theme_haze",
+        vars: {
+          "--bg": "#0a0d12",
+          "--panel": "#10161f",
+          "--line": "rgba(190, 210, 236, 0.14)",
+          "--line-soft": "rgba(190, 210, 236, 0.08)",
+          "--accent": "#b2c4da",
+          "--accent-2": "#c7d6ea",
+          "--text": "#eff5fb",
+          "--muted": "#9fb0c2",
+          "--bg-grad-1": "rgba(158, 190, 220, 0.12)",
+          "--bg-grad-2": "rgba(92, 120, 150, 0.12)",
+          "--bg-overlay-1": "rgba(200, 220, 240, 0.06)",
+          "--bg-overlay-2": "rgba(140, 170, 200, 0.06)",
+          "--panel-grad-1": "rgba(16, 22, 32, 0.9)",
+          "--panel-grad-2": "rgba(12, 18, 28, 0.88)",
+          "--canvas-grad-1": "rgba(26, 34, 46, 0.5)",
+          "--canvas-grad-2": "rgba(16, 22, 34, 0.46)",
+          "--key-grad-1": "rgba(230, 240, 252, 0.1)",
+          "--key-grad-2": "rgba(230, 240, 252, 0.02)"
+        },
+        palette: [
+          { hue: 200, sat: 22, light: 78 },
+          { hue: 208, sat: 24, light: 72 },
+          { hue: 216, sat: 26, light: 66 },
+          { hue: 226, sat: 20, light: 60 },
+          { hue: 198, sat: 16, light: 76 }
+        ]
+      },
+      snow: {
+        label: "theme_snow",
+        vars: {
+          "--bg": "#f7fafc",
+          "--panel": "#f4f7fb",
+          "--line": "rgba(120, 140, 168, 0.18)",
+          "--line-soft": "rgba(120, 140, 168, 0.1)",
+          "--accent": "#3f5b7a",
+          "--accent-2": "#7a9abc",
+          "--text": "#0e1a28",
+          "--muted": "#5b6a7a",
+          "--bg-grad-1": "rgba(255, 255, 255, 0.9)",
+          "--bg-grad-2": "rgba(220, 234, 248, 0.6)",
+          "--bg-overlay-1": "rgba(170, 190, 210, 0.12)",
+          "--bg-overlay-2": "rgba(200, 220, 240, 0.18)",
+          "--panel-grad-1": "rgba(255, 255, 255, 0.9)",
+          "--panel-grad-2": "rgba(242, 246, 252, 0.95)",
+          "--canvas-grad-1": "rgba(230, 238, 248, 0.9)",
+          "--canvas-grad-2": "rgba(214, 226, 240, 0.86)",
+          "--key-grad-1": "rgba(255, 255, 255, 0.9)",
+          "--key-grad-2": "rgba(240, 246, 252, 0.9)"
+        },
+        palette: [
+          { hue: 205, sat: 22, light: 38 },
+          { hue: 210, sat: 24, light: 32 },
+          { hue: 215, sat: 26, light: 28 },
+          { hue: 195, sat: 18, light: 40 },
+          { hue: 220, sat: 16, light: 36 }
         ]
       },
       obsidian: {
