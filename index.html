@@ -3085,14 +3085,6 @@
           n.t = a.t;
           n.lane = laneSeq[i % laneSeq.length];
           n.importance = Math.max(n.importance || 1, 1.8);
-        } else {
-          notes.push({
-            t: a.t,
-            lane: laneSeq[i % laneSeq.length],
-            type: "tap",
-            color: toneColor(rng),
-            importance: 2.1
-          });
         }
       }
       return dedupeAndSortNotes(notes);
@@ -3110,7 +3102,7 @@
       return dedupeAndSortNotes(notes);
     }
 
-    function injectMetalcorePatterns(notes, sections, anchors, bpm, barSec, rng = Math.random) {
+    function injectMetalcorePatterns(notes, sections, anchors, bpm, barSec, rng = Math.random, sourceOnsets = null) {
       if (!sections || !sections.length) return notes;
       const difficultyGain = { easy: 0.45, normal: 0.72, hard: 0.96, expert: 1.15 }[difficulty] || 0.72;
       const patterns = {
@@ -3124,6 +3116,26 @@
       const hasNearby = (t, lane = null) => notes.some((n) =>
         Math.abs(n.t - t) <= 0.042 && (lane === null || n.lane === lane)
       );
+      let onsetTimes = null;
+      if (sourceOnsets && sourceOnsets.length) {
+        onsetTimes = sourceOnsets.slice().sort((a, b) => a.t - b.t).map((o) => o.t);
+      }
+      const hasOnsetNear = (t) => {
+        if (!onsetTimes) return true;
+        let lo = 0;
+        let hi = onsetTimes.length - 1;
+        while (lo <= hi) {
+          const mid = (lo + hi) >> 1;
+          const v = onsetTimes[mid];
+          if (v < t) lo = mid + 1;
+          else hi = mid - 1;
+        }
+        const idx = Math.max(0, Math.min(onsetTimes.length - 1, lo));
+        const a = onsetTimes[idx];
+        const b = onsetTimes[Math.max(0, idx - 1)];
+        const dist = Math.min(Math.abs(a - t), Math.abs(b - t));
+        return dist <= Math.min(0.06, (60 / bpm) * 0.2);
+      };
       const laneSeq = centerOutLanes(laneCount);
       const barAnchors = new Map();
       for (const a of anchors || []) {
@@ -3148,6 +3160,7 @@
             }
             if (nearest) t = nearest.a.t;
             const lane = laneSeq[(bar + pi) % laneSeq.length];
+            if (!hasOnsetNear(t)) continue;
             if (hasNearby(t, lane)) continue;
             notes.push({
               t,
@@ -3244,48 +3257,82 @@
       if (!onsets.length) return [];
       const beat = 60 / bpm;
       const grid = beat / 4;
-      const maxV = onsets.reduce((m, o) => Math.max(m, o.v), 0) || 1;
-      const quantized = [];
-      let last = -999;
-      let lane = 0;
-
-      for (const o of onsets) {
-        const q = Math.round((o.t - phaseOffset) / grid) * grid + phaseOffset;
-        const dist = Math.abs(o.t - q);
-        const t = dist <= grid * 0.45 ? (o.t * (1 - lock) + q * lock) : o.t;
-        if (t - last < grid * 0.5) continue;
-        const keepProb = Math.min(1, density * (0.55 + (o.v / maxV) * 0.9));
-        if (rng() > keepProb) continue;
-        quantized.push({ t, v: o.v });
-        last = t;
-      }
-
-      const notes = [];
+      const barSec = beat * barBeats;
       const timeColor = new Map();
       const colorForTime = (t) => {
         const key = t.toFixed(3);
         if (!timeColor.has(key)) timeColor.set(key, toneColor(rng));
         return timeColor.get(key);
       };
-      for (let i = 0; i < quantized.length; i += 1) {
-        const n = quantized[i];
-        const strong = n.v > maxV * 0.45;
-        const beatIndex = Math.round((n.t - phaseOffset) / beat);
-        const makeChord = strong && (beatIndex % 4 === 0);
-        if (makeChord) {
-          lane = (lane + 1) % laneCount;
-          const other = (lane + 2) % laneCount;
-          const c = colorForTime(n.t);
-          notes.push({ t: n.t, lane, type: "tap", color: c });
-          notes.push({ t: n.t, lane: other, type: "tap", color: c });
-          continue;
-        }
-        lane = (lane + 1 + (i % 2)) % laneCount;
-        notes.push({ t: n.t, lane, type: "tap", color: colorForTime(n.t) });
+
+      const quantMap = new Map();
+      for (const o of onsets) {
+        const idx = Math.round((o.t - phaseOffset) / grid);
+        const q = idx * grid + phaseOffset;
+        const entry = quantMap.get(idx) || { t: q, v: 0, c: 0 };
+        entry.v += o.v || 0.4;
+        entry.c += 1;
+        quantMap.set(idx, entry);
       }
+      const quantized = Array.from(quantMap.values())
+        .map((q) => ({ t: q.t, v: q.v }))
+        .sort((a, b) => a.t - b.t);
+      if (!quantized.length) return [];
+
+      const byBar = new Map();
+      for (const q of quantized) {
+        const bar = Math.floor(q.t / barSec);
+        if (!byBar.has(bar)) byBar.set(bar, []);
+        byBar.get(bar).push(q);
+      }
+
+      const diffMult = { easy: 0.85, normal: 1, hard: 1.2, expert: 1.45 }[difficulty] || 1;
+      const targetBase = (3.6 + density * 4.2) * diffMult;
+      const minPerBar = Math.max(2, Math.round(2.6 * diffMult));
+      const maxPerBar = Math.round(10 * diffMult);
+      const minGap = grid * 0.75;
+      const laneSeq = centerOutLanes(laneCount);
+      let laneIdx = 0;
+      const notes = [];
+
+      const bars = Array.from(byBar.keys()).sort((a, b) => a - b);
+      for (const bar of bars) {
+        const list = byBar.get(bar).slice().sort((a, b) => b.v - a.v);
+        const maxV = list[0]?.v || 1;
+        let target = Math.round(targetBase);
+        target = Math.min(maxPerBar, Math.max(minPerBar, target));
+        const picked = [];
+        for (const q of list) {
+          if (picked.length >= target) break;
+          if (picked.some((p) => Math.abs(p.t - q.t) < minGap)) continue;
+          if (q.v < maxV * 0.18) continue;
+          picked.push(q);
+        }
+        if (picked.length < minPerBar) {
+          const fallback = list.slice().sort((a, b) => a.t - b.t);
+          for (const q of fallback) {
+            if (picked.length >= minPerBar) break;
+            if (picked.some((p) => Math.abs(p.t - q.t) < minGap)) continue;
+            picked.push(q);
+          }
+        }
+        picked.sort((a, b) => a.t - b.t);
+        for (const q of picked) {
+          const beatIndex = Math.round((q.t - phaseOffset) / grid);
+          const strong = q.v >= maxV * 0.72 && (beatIndex % 4 === 0);
+          const lane = laneSeq[laneIdx % laneSeq.length];
+          laneIdx += 1;
+          const c = colorForTime(q.t);
+          notes.push({ t: q.t, lane, type: "tap", color: c });
+          if (strong && laneCount >= 4) {
+            const other = (lane + Math.floor(laneCount / 2)) % laneCount;
+            notes.push({ t: q.t, lane: other, type: "tap", color: c });
+          }
+        }
+      }
+
       const base = injectHolds(notes.sort((a, b) => a.t - b.t), bpm, rng);
       if (!postprocess) return base;
-      const barSec = (60 / Math.max(60, bpm || 120)) * barBeats;
       const riffMap = buildRiffTemplateMap(onsets, barSec);
       const snapped = snapNotesToGrid(applyRiffReuse(base, riffMap, barSec), bpm, phaseOffset);
       return enforceDifficultyComplexity(snapped, bpm, barSec, rng);
@@ -3616,7 +3663,7 @@
       }
       let out = merged.sort((a, b) => a.t - b.t).map((n) => ({ ...n, importance: n.type === "hold" ? 1.25 : 1 }));
       out = applyAnchorAlignment(out, anchors, bpm, rng);
-      out = injectMetalcorePatterns(out, sectionGrammar, anchors, bpm, barSec, rng);
+      out = injectMetalcorePatterns(out, sectionGrammar, anchors, bpm, barSec, rng, modes.mix || []);
       const riffSource = (modes.guitar && modes.guitar.length) ? modes.guitar : (modes.mix || []);
       const riffMap = buildRiffTemplateMap(riffSource, barSec);
       out = snapNotesToGrid(applyRiffReuse(out, riffMap, barSec), bpm, phaseOffset);
