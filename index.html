@@ -25,6 +25,8 @@
       --canvas-grad-2: rgba(14, 18, 25, 0.4);
       --key-grad-1: rgba(248, 252, 255, 0.08);
       --key-grad-2: rgba(248, 252, 255, 0.02);
+      --logo-filter: none;
+      --logo-opacity: 1;
       --lane-1: #3c4858;
       --lane-2: #435061;
       --lane-3: #4a5768;
@@ -347,6 +349,8 @@
       width: min(82vmin, 900px);
       height: min(82vmin, 900px);
       object-fit: contain;
+      filter: var(--logo-filter);
+      opacity: var(--logo-opacity);
     }
 
     .app,
@@ -2747,31 +2751,33 @@
       haze: {
         label: "theme_haze",
         vars: {
-          "--bg": "#0a0d12",
-          "--panel": "#10161f",
+          "--bg": "#0c1118",
+          "--panel": "#121a26",
           "--line": "rgba(190, 210, 236, 0.14)",
           "--line-soft": "rgba(190, 210, 236, 0.08)",
           "--accent": "#b2c4da",
           "--accent-2": "#c7d6ea",
           "--text": "#eff5fb",
-          "--muted": "#9fb0c2",
-          "--bg-grad-1": "rgba(158, 190, 220, 0.12)",
-          "--bg-grad-2": "rgba(92, 120, 150, 0.12)",
-          "--bg-overlay-1": "rgba(200, 220, 240, 0.06)",
-          "--bg-overlay-2": "rgba(140, 170, 200, 0.06)",
-          "--panel-grad-1": "rgba(16, 22, 32, 0.9)",
-          "--panel-grad-2": "rgba(12, 18, 28, 0.88)",
-          "--canvas-grad-1": "rgba(26, 34, 46, 0.5)",
-          "--canvas-grad-2": "rgba(16, 22, 34, 0.46)",
-          "--key-grad-1": "rgba(230, 240, 252, 0.1)",
-          "--key-grad-2": "rgba(230, 240, 252, 0.02)"
+          "--muted": "#a9bbce",
+          "--bg-grad-1": "rgba(186, 214, 238, 0.16)",
+          "--bg-grad-2": "rgba(112, 148, 188, 0.16)",
+          "--bg-overlay-1": "rgba(214, 232, 248, 0.08)",
+          "--bg-overlay-2": "rgba(164, 194, 222, 0.08)",
+          "--panel-grad-1": "rgba(18, 26, 38, 0.92)",
+          "--panel-grad-2": "rgba(14, 20, 30, 0.9)",
+          "--canvas-grad-1": "rgba(30, 42, 58, 0.55)",
+          "--canvas-grad-2": "rgba(18, 28, 42, 0.5)",
+          "--key-grad-1": "rgba(234, 244, 255, 0.12)",
+          "--key-grad-2": "rgba(234, 244, 255, 0.03)",
+          "--logo-filter": "drop-shadow(0 0 28px rgba(180, 210, 238, 0.28))",
+          "--logo-opacity": 1
         },
         palette: [
-          { hue: 200, sat: 22, light: 78 },
-          { hue: 208, sat: 24, light: 72 },
-          { hue: 216, sat: 26, light: 66 },
-          { hue: 226, sat: 20, light: 60 },
-          { hue: 198, sat: 16, light: 76 }
+          { hue: 200, sat: 26, light: 82 },
+          { hue: 208, sat: 28, light: 76 },
+          { hue: 216, sat: 30, light: 70 },
+          { hue: 226, sat: 24, light: 64 },
+          { hue: 198, sat: 20, light: 80 }
         ]
       },
       snow: {
@@ -2793,8 +2799,10 @@
           "--panel-grad-2": "rgba(242, 246, 252, 0.95)",
           "--canvas-grad-1": "rgba(230, 238, 248, 0.9)",
           "--canvas-grad-2": "rgba(214, 226, 240, 0.86)",
-          "--key-grad-1": "rgba(255, 255, 255, 0.9)",
-          "--key-grad-2": "rgba(240, 246, 252, 0.9)"
+          "--key-grad-1": "rgba(255, 255, 255, 0.92)",
+          "--key-grad-2": "rgba(240, 246, 252, 0.9)",
+          "--logo-filter": "invert(1) brightness(0.25) contrast(1.2) drop-shadow(0 0 24px rgba(0,0,0,0.35)) drop-shadow(0 0 60px rgba(0,0,0,0.18))",
+          "--logo-opacity": 0.88
         },
         palette: [
           { hue: 205, sat: 22, light: 38 },
